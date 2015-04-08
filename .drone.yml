@@ -1,0 +1,6 @@
+image: node:0.10
+services:
+    mongodb
+script:
+    - npm install -d
+    - npm test
