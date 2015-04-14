@@ -1,6 +1,11 @@
 image: node:0.10
 services:
-    mongodb
+    - library/mongo:latest
 script:
+    - mkdir -p /tmp/npm
+    - sed s/localhost/$MONGO_PORT_27017_TCP_ADDR/ test/config.js.sample > test/config.js
+    - npm config set cache /tmp/npm
     - npm install -d
     - npm test
+cache:
+    - /tmp/npm
