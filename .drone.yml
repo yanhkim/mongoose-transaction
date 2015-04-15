@@ -7,5 +7,11 @@ script:
     - npm config set cache /tmp/npm
     - npm install -d
     - npm test
+    - npm install mongoose@3.6.x
+    - npm test
+    - npm install mongoose@3.8.x
+    - npm test
+    - npm install mongoose@4.0.x
+    - npm test
 cache:
     - /tmp/npm
