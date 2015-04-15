@@ -310,8 +310,7 @@ var findAndModifyMongoNative = function(connection, collection, query, update,
                                            {collection: collection.name,
                                             query: query, update: update});
             }
-            callback(null, data.documents[0].value);
-            return;
+            return data.documents[0].value;
         }
         collection.findAndModify(query, [], update,
                                  {fields: fields, new: true},
