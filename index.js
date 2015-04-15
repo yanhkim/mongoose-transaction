@@ -1367,24 +1367,24 @@ var filterTransactedDocs = function(docs, callback) {
 var recheckTransactions = function(model, transactedDocs, callback) {
     var transactionIds = transactedDocs.ids;
     var transactionIdDocsMap = transactedDocs.map;
-    async.each(transactionIds, function(transactionId, next) {
-        var query = {
-            _id: transactionId,
-            //sk: makeShardKey(transactionId)
-        };
-        var transactionModel = _getPseudoModel(RAW_TRANSACTION_COLLECTION);
-        transactionModel.connection
-                        .models[TRANSACTION_COLLECTION]
-                        .findOne(query, function(err, tr) {
-            if (err) {
-                return next(err);
-            }
+
+    sync.fiber(function() {
+        transactionIds.forEach(function(transactionId) {
+            var query = {
+                _id: transactionId,
+                //sk: makeShardKey(transactionId)
+            };
+            var transactionModel = _getPseudoModel(RAW_TRANSACTION_COLLECTION);
+                transactionModel.connection
+                                .models[TRANSACTION_COLLECTION]
+                                .findOne(query, sync.defer());
+            var tr = sync.await();
             if (tr && tr.state != 'done') {
-                tr._postProcess(next);
+                tr._postProcess(sync.defer()); sync.await();
                 return;
             }
             async.each(transactionIdDocsMap[transactionId],
-                       function(doc, _next) {
+                       function(doc, next) {
                 var pseudoModel;
                 try {
                     pseudoModel = _getPseudoModel(model);
@@ -1395,16 +1395,16 @@ var recheckTransactions = function(model, transactedDocs, callback) {
                 addShardKeyDatas(pseudoModel, doc, query);
                 if (doc.__new) {
                     return model.collection.remove(query,
-                                                   _next);
+                                                   next);
                 }
                 return pseudoFindAndModify2(
                     pseudoModel.connection.db,
                     model.collection.name,
                     query,
                     {$set: {t: NULL_OBJECTID}},
-                    _next
+                    next
                 );
-            }, next);
+            }, sync.defer()); sync.await();
         });
     }, callback);
 };

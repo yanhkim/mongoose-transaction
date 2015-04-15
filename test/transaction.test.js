@@ -337,8 +337,9 @@ describe('Find documents from model', function() {
        function(done) {
         var self = this;
         sync.fiber(function() {
-            self.x.t = new mongoose.Types.ObjectId();
-            self.x.save();
+            Test.collection.update({_id: self.x._id},
+                                   {$set: {t: new mongoose.Types.ObjectId()}},
+                                   sync.defer()); sync.await();
             Test.findById(self.x._id, sync.defer());
             var _x = sync.await();
             should.exists(_x);
@@ -351,11 +352,11 @@ describe('Find documents from model', function() {
        function(done) {
         var self = this;
         sync.fiber(function() {
-            self.x.t = new mongoose.Types.ObjectId();
+            Test.collection.update({_id: self.x._id},
+                                   {$set: {t: new mongoose.Types.ObjectId()}},
+                                   sync.defer()); sync.await();
             var x2 = newTest({num: 2, t: new mongoose.Types.ObjectId()});
-            async.forEach([self.x, x2], function (doc, next) {
-                doc.save(next);
-            }, sync.defer()); sync.await();
+            x2.save(sync.defer()); sync.await();
             Test.find({}, sync.defer());
             var xs = sync.await();
             should.exists(xs);
