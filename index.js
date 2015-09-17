@@ -677,6 +677,9 @@ TransactionSchema.methods._commit = function(callback) {
             if (errors.length) {
                 console.error(errors);
                 self.expire(sync.defer()); sync.await();
+                if (errors[0]) {
+                    throw errors[0];
+                }
                 throw new TransactionError(
                     TRANSACTION_ERRORS.UNKNOWN_COMMIT_ERROR, null, self
                 );
