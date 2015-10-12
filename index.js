@@ -117,7 +117,7 @@ module.exports.TransactionSchema = TransactionSchema;
 //    return isNaN(counter) ? 63 : counter % 64;
 //};
 var addShardKeyDatas = function(pseudoModel, src, dest) {
-    if (!pseudoModel || pseudoModel.shardKey ||
+    if (!pseudoModel || !pseudoModel.shardKey ||
             !Array.isArray(pseudoModel.shardKey)) {
         return;
     }
