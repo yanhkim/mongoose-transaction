@@ -1507,7 +1507,7 @@ var find = function(proto) {
 // * doc - :Document: or :Array:
 var findForce = function(proto) {
     return function() {
-        proto.orig.apply(proto.target, arguments);
+        return proto.orig.apply(proto.target, arguments);
         // TODO delete save method
     };
 };
