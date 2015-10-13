@@ -44,16 +44,20 @@ before(function (done) {
         }
         Test = transaction.TransactedModel(connection, 'Test', TestSchema);
         // FIXME: need init process
-        transaction.TransactionSchema.plugin(function(schema) {
-            schema.add({shard: {type: Number, required: true}});
-            schema.options.shardKey = {shard: 1, _id: 1};
-            schema.pre('validate', function(cb) {
-                if (!this.shard) {
-                    this.shard = this._id.getTimestamp().getTime();
-                }
-                cb();
-            });
-        });
+        transaction.TransactionSchema.plugin(transaction.bindShardKeyRule,
+                                             {fields: {
+                                                  shard: {type: Number,
+                                                          required: true},
+                                              },
+                                              rule: {
+                                                  shard: 1, _id: 1
+                                              },
+                                              initialize: function(doc) {
+                                                  doc.shard =
+                                                      doc.shard ||
+                                                      doc._id.getTimestamp()
+                                                             .getTime();
+                                              }});
         Transaction = connection.model(transaction.TRANSACTION_COLLECTION,
                                        transaction.TransactionSchema);
         transaction.addCollectionPseudoModelPair(
