@@ -110,12 +110,18 @@ var TransactionSchema = new mongoose.Schema({
 
 // exports
 module.exports.TransactionSchema = TransactionSchema;
+// FIXME: rename this plugin
+module.exports.bindShardKeyRule = function(schema, rule) {
+    if (!rule || !rule.fields || !rule.rule || !rule.initialize ||
+            !Object.keys(rule.rule).length ||
+            typeof(rule.initialize) !== 'function') {
+        throw new TransactionError(TRANSACTION_ERRORS.BROKEN_DATA);
+    }
+    schema.add(rule.fields);
+    schema.options.shardKey = rule.rule;
+    schema.options.shardKey.initialize = rule.initialize;
+};
 
-//var makeShardKey = function(objectId) {
-//    if (!objectId) return 63;
-//    var counter = parseInt(objectId.toString().substring(18), 16);
-//    return isNaN(counter) ? 63 : counter % 64;
-//};
 var addShardKeyDatas = function(pseudoModel, src, dest) {
     if (!pseudoModel || !pseudoModel.shardKey ||
             !Array.isArray(pseudoModel.shardKey)) {
@@ -152,6 +158,13 @@ var _getPseudoModel = function(model) {
         throw new TransactionError(TRANSACTION_ERRORS.INVALID_COLLECTION);
     }
     return pseudoModel;
+};
+var _attachShardKey = function(doc) {
+    if (!TransactionSchema.options.shardKey ||
+            !TransactionSchema.options.shardKey.initialize) {
+        return;
+    }
+    TransactionSchema.options.shardKey.initialize(doc);
 };
 
 // ## PseudoFindAndModify
@@ -377,10 +390,10 @@ TransactionSchema.methods.isExpired = function isExpired() {
 // #### Callback arguments
 // * err
 TransactionSchema.methods.begin = function(callback) {
-    //this.sk = this.sk || makeShardKey(this._id);
     this.state = 'pending';
     this._docs = [];
     DEBUG('transaction begin', this._id);
+    _attachShardKey(this);
     this.save(callback);
 };
 
@@ -410,7 +423,7 @@ TransactionSchema.methods.add = function (doc, callback) {
         }, callback);
     }
     var pseudoModel = _getPseudoModel(doc);
-    //self.sk = self.sk || makeShardKey(self._id);
+    _attachShardKey(self);
     sync.fiber(function() {
         doc.validate(sync.defer()); sync.await();
         if (doc.isNew) {
@@ -488,8 +501,8 @@ TransactionSchema.methods._moveState = function(prev, delta, callback) {
     } catch(e) {
         return callback(e);
     }
-    //var query = {_id: self._id, sk: makeShardKey(self._id), state: prev};
     var query = {_id: self._id, state: prev};
+    _attachShardKey(query);
     sync.fiber(function() {
         _pseudoFindAndModify(transactionModel.connection.db,
                              RAW_TRANSACTION_COLLECTION, query, delta,
@@ -1374,12 +1387,12 @@ var recheckTransactions = function(model, transactedDocs, callback) {
         transactionIds.forEach(function(transactionId) {
             var query = {
                 _id: transactionId,
-                //sk: makeShardKey(transactionId)
             };
+            _attachShardKey(query);
             var transactionModel = _getPseudoModel(RAW_TRANSACTION_COLLECTION);
-                transactionModel.connection
-                                .models[TRANSACTION_COLLECTION]
-                                .findOne(query, sync.defer());
+            transactionModel.connection
+                            .models[TRANSACTION_COLLECTION]
+                            .findOne(query, sync.defer());
             var tr = sync.await();
             if (tr && tr.state != 'done') {
                 tr._postProcess(sync.defer()); sync.await();
