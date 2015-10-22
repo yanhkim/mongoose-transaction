@@ -941,7 +941,8 @@ TransactionSchema.methods.find = function(model, conditions, options,
             var query = {_id: _doc._id, $or: [{t: NULL_OBJECTID},
                                               {t: {$exists: false}}]};
             addShardKeyDatas(pseudoModel, _doc, query);
-            model.findOneAndUpdate(query, {$set: {t: self._id}}, {new: true},
+            model.findOneAndUpdate(query, {$set: {t: self._id}},
+                                   {new: true, fields: options.fields},
                                    function(err, doc) {
                 if (err) {
                     return next(err);
@@ -1029,7 +1030,9 @@ TransactionSchema.methods.findWithWaitRetry = function(model, conditions,
                     var doc;
                     try {
                         model.findOneAndUpdate(query, {$set: {t: self._id}},
-                                               {new: true}, sync.defer());
+                                               {new: true,
+                                                fields: options.fields},
+                                               sync.defer());
                         doc = sync.await();
                         if (doc) {
                             self._docs.push(doc);
@@ -1108,7 +1111,8 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
         var query = {_id: _doc._id, $or: [{t: NULL_OBJECTID},
                                           {t: {$exists: false}}]};
         addShardKeyDatas(pseudoModel, _doc, query);
-        model.findOneAndUpdate(query, {$set: {t: self._id}}, {new: true},
+        model.findOneAndUpdate(query, {$set: {t: self._id}},
+                               {new: true, fields: options.fields},
                                sync.defer());
         var doc = sync.await();
         if (!doc) {
@@ -1179,7 +1183,8 @@ TransactionSchema.methods.findOneWithWaitRetry = function(model, conditions,
             var doc;
             try {
                 model.findOneAndUpdate(query1, {$set: {t: self._id}},
-                                       {new: true}, sync.defer());
+                                       {new: true, fields: options.fields},
+                                       sync.defer());
                 doc = sync.await();
             } catch(e) {
                 if (!remainRetry) {
