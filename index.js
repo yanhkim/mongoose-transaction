@@ -569,7 +569,7 @@ TransactionSchema.methods.commit = function (callback) {
                 return;
             }
             var op = unwrapMongoOp(JSON.parse(history.op));
-            removeShardKeySetData(pseudoModel, op);
+            removeShardKeySetData(pseudoModel.shardKey, op);
             pseudoFindAndModify2(pseudoModel.connection.db, history.col, query,
                                  op, function(err) {
                 if (err) {
