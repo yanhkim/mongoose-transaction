@@ -77,15 +77,12 @@ var NULL_OBJECTID = mongoose.Types.ObjectId("000000000000000000000000");
 module.exports.NULL_OBJECTID = NULL_OBJECTID;
 
 var TransactionError = module.exports.TransactionError =
-        function TransactionError(type, document, transaction, delta, vd) {
+        function TransactionError(type, hint) {
     Error.call(this);
     Error.captureStackTrace(this, TransactionError);
     this.name = 'TransactionError';
     this.message = this.type = type || 'unknown';
-    var collectionName =
-            document && document.collection && document.collection.name;
-    var docId = document && document._id;
-    this.hint = [collectionName, docId, transaction, delta, vd];
+    this.hint = hint;
 };
 util.inherits(module.exports.TransactionError, Error);
 
@@ -143,19 +140,22 @@ var removeShardKeySetData = function(shardKey, op) {
 var getShardKeyArray = function(shardKey) {
     return Array.isArray(shardKey) ? shardKey : [];
 };
+var _getCollectionName = function(model) {
+    if (model.collection && model.collection.name) {
+        return model.collection.name;
+    } else {
+        return model;
+    }
+};
 var _getPseudoModel = function(model) {
     if (!model) {
         throw new TransactionError(TRANSACTION_ERRORS.INVALID_COLLECTION);
     }
-    var key;
-    if (model.collection && model.collection.name) {
-        key = model.collection.name;
-    } else {
-        key = model;
-    }
+    var key = _getCollectionName(model);
     var pseudoModel = CollectionPseudoModelMap[key];
     if (!pseudoModel) {
-        throw new TransactionError(TRANSACTION_ERRORS.INVALID_COLLECTION);
+        throw new TransactionError(TRANSACTION_ERRORS.INVALID_COLLECTION,
+                                   {collection: key});
     }
     return pseudoModel;
 };
@@ -240,16 +240,16 @@ var pseudoFindAndModify1 = function(db, collectionName, query, update,
         if (t1 == t2) {
             return;
         }
-        var virtualDoc = {
-            collection: {name: collectionName},
-            _id: query._id
-        };
         if (!updatedDoc) {
-            throw new TransactionError(TRANSACTION_ERRORS.SOMETHING_WRONG,
-                                       virtualDoc);
+            throw new TransactionError(
+                TRANSACTION_ERRORS.SOMETHING_WRONG,
+                {collection: collectionName, doc: query._id, query: query}
+            );
         }
-        throw new TransactionError(TRANSACTION_ERRORS.TRANSACTION_CONFLICT_1,
-                                   virtualDoc);
+        throw new TransactionError(
+            TRANSACTION_ERRORS.TRANSACTION_CONFLICT_1,
+            {collection: collectionName, doc: query._id, query: query}
+        );
     }, callback);
 };
 
@@ -436,8 +436,11 @@ TransactionSchema.methods.add = function (doc, callback) {
         }
         if (doc.t && !NULL_OBJECTID.equals(doc.t) &&
                 doc.t.toString() != self._id.toString()) {
-            throw new TransactionError(TRANSACTION_ERRORS.BROKEN_DATA, doc,
-                                       self);
+            throw new TransactionError(TRANSACTION_ERRORS.BROKEN_DATA,
+                                       {collection:
+                                           doc && _getCollectionName(doc),
+                                        doc: doc && doc._id,
+                                        transaction: self});
         }
         if (doc.t && !NULL_OBJECTID.equals(doc.t)) {
             // FIXME: preload transacted
@@ -521,7 +524,8 @@ TransactionSchema.methods._moveState = function(prev, delta, callback) {
         var state1 = delta.state || ((delta.$set || {}).state);
         var state2 = updatedDoc && updatedDoc.state;
         if (state1 != state2) {
-            throw new TransactionError(TRANSACTION_ERRORS.SOMETHING_WRONG);
+            throw new TransactionError(TRANSACTION_ERRORS.SOMETHING_WRONG,
+                                       {transaction: self, query: query});
         }
         return (updatedDoc && updatedDoc.history) || [];
     }, callback);
@@ -678,8 +682,8 @@ TransactionSchema.methods._commit = function(callback) {
     if (self.state == 'expire') {
         DEBUG('transaction expired', self._id);
         return callback(
-            new TransactionError(TRANSACTION_ERRORS.TRANSACTION_EXPIRED, null,
-                                 self)
+            new TransactionError(TRANSACTION_ERRORS.TRANSACTION_EXPIRED,
+                                 {transaction: self})
         );
     }
 
@@ -694,14 +698,15 @@ TransactionSchema.methods._commit = function(callback) {
                     throw errors[0];
                 }
                 throw new TransactionError(
-                    TRANSACTION_ERRORS.UNKNOWN_COMMIT_ERROR, null, self
+                    TRANSACTION_ERRORS.UNKNOWN_COMMIT_ERROR,
+                    {transaction: self}
                 );
             }
         }
         if (self.isExpired()) {
             self.expire(sync.defer()); sync.await();
             throw new TransactionError(TRANSACTION_ERRORS.TRANSACTION_EXPIRED,
-                                       null, self);
+                                       {transaction: self});
         }
         self.state = 'commit';
         DEBUG('transaction commit', self._id);
@@ -715,7 +720,7 @@ TransactionSchema.methods._commit = function(callback) {
             self.state = undefined;
             self.expire(sync.defer()); sync.await();
             throw new TransactionError(TRANSACTION_ERRORS.UNKNOWN_COMMIT_ERROR,
-                                       null, self);
+                                       {transaction: self});
         }
         if (!history) {
             self._docs.forEach(function (doc) {
@@ -864,7 +869,8 @@ TransactionSchema.methods._postProcess = function(callback) {
             }
             return callback(
                 new TransactionError(TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
-                                     this)
+                                     {collection: _getCollectionName(this),
+                                      transaction: this})
             );
         case 'commit':
             return this.commit(callback);
@@ -951,7 +957,9 @@ TransactionSchema.methods.find = function(model, conditions, options,
                     return next(
                         new TransactionError(
                             TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
-                            _doc, self
+                            {collection: _doc && _getCollectionName(_doc),
+                             doc: _doc && _doc._id, query: query,
+                             transaction: self}
                         )
                     );
                 }
@@ -1041,7 +1049,9 @@ TransactionSchema.methods.findWithWaitRetry = function(model, conditions,
                         if (!remainRetry) {
                             throw new TransactionError(
                                 TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
-                                _doc, self
+                                {collection: _doc && _getCollectionName(_doc),
+                                 doc: _doc && _doc._id, query: query,
+                                 transaction: self}
                             );
                         }
                         try {
@@ -1117,7 +1127,9 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
         var doc = sync.await();
         if (!doc) {
             throw new TransactionError(
-                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2, _doc, self
+                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
+                {collection: _doc && _getCollectionName(_doc),
+                 doc: _doc && _doc._id, query: query, transaction: self}
             );
         }
         self._docs.push(doc);
@@ -1198,7 +1210,8 @@ TransactionSchema.methods.findOneWithWaitRetry = function(model, conditions,
             if (!remainRetry) {
                 throw new TransactionError(
                     TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
-                    _doc, self
+                    {collection: _doc && _getCollectionName(_doc),
+                     doc: _doc && _doc._id, query: query1, transaction: self}
                 );
             }
             // if t is not NULL_OBJECTID, try to go end of transaction process
@@ -1260,12 +1273,16 @@ var saveWithoutTransaction = function(next, callback) {
         var data = sync.await();
         if (!data) {
             throw new TransactionError(
-                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_1, self
+                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_1,
+                {collection: _getCollectionName(self), doc: self._id,
+                 query: query}
             );
         }
         if (data.t && !NULL_OBJECTID.equals(data.t)) {
             throw new TransactionError(
-                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2, self
+                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
+                {collection: _getCollectionName(self), doc: self._id,
+                 query: query}
             );
         }
         self.emit('transactedSave');
@@ -1494,7 +1511,11 @@ var find = function(proto) {
                 recheckTransactions(proto.model, transactedDocs, sync.defer());
                 sync.await();
             }
-            throw new TransactionError(TRANSACTION_ERRORS.INFINITE_LOOP);
+            throw new TransactionError(
+                TRANSACTION_ERRORS.INFINITE_LOOP,
+                {collection: _getCollectionName(proto.model),
+                 query: args.length > 1 && args[0] || {}}
+            );
         }, callback);
     };
 };
