@@ -1,17 +1,40 @@
-image: node:0.10
-services:
-    - library/mongo:latest
-script:
-    - mkdir -p /tmp/npm
-    - sed s/localhost/$MONGO_PORT_27017_TCP_ADDR/ test/config.js.sample > test/config.js
-    - npm config set cache /tmp/npm
-    - npm install -d
-    - npm test
-    - npm install mongoose@3.6.x
-    - npm test
-    - npm install mongoose@3.8.x
-    - npm test
-    - npm install mongoose@4.0.x
-    - npm test
-cache:
-    - /tmp/npm
+build:
+    image: "node:$$NODE_VERSION"
+    commands:
+        - echo $NODE_VERSION
+        - node -v
+        - mkdir -p /tmp/npm
+        - cp test/config.js.sample test/config.js
+        - npm config set cache /tmp/npm
+        - npm install -d
+        - npm install mongoose@$$MONGOOSE_VERSION
+        - npm test
+    cache:
+        - /tmp/npm
+
+compose:
+    mongo:
+        image: mongo:latest
+
+matrix:
+    NODE_VERSION:
+        - 0.10
+        - 0.12
+        - 4
+        - 5
+    MONGOOSE_VERSION:
+        - 3.6.x
+        - 3.8.x
+        - 4.0.x
+
+notify:
+    email:
+        from: $$EMAIL_FROM
+        host: $$SMTP_HOST
+        port: $$SMTP_PORT
+        username: $$SMTP_USERNAME
+        password: $$SMTP_PASSWORD
+        skip_verify: $$SMTP_SKIP_SSL_VERIFY
+        when:
+            success: false
+            failure: true
