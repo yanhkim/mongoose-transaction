@@ -16,6 +16,8 @@ spec:3.6:
     cache:
         paths:
             - /tmp/npm
+    only:
+        - spearhead/mongoose-transaction
 
 spec:3.8:
     stage: test
@@ -26,6 +28,8 @@ spec:3.8:
     cache:
         paths:
             - /tmp/npm
+    only:
+        - spearhead/mongoose-transaction
 
 spec:4.0:
     stage: test
@@ -36,3 +40,5 @@ spec:4.0:
     cache:
         paths:
             - /tmp/npm
+    only:
+        - spearhead/mongoose-transaction
