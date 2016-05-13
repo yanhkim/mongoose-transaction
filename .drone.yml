@@ -22,10 +22,13 @@ matrix:
         - 0.12
         - 4
         - 5
+        - 6
     MONGOOSE_VERSION:
         - 3.6.x
         - 3.8.x
         - 4.0.x
+        - 4.2.x
+        - 4.4.x
 
 notify:
     email:
