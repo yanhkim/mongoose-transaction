@@ -10,14 +10,14 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "mongoose": "3.8.25",
     "synchronize": "",
     "async": "",
     "underscore": ""
   },
   "devDependencies": {
     "should": "",
-    "mocha": ""
+    "mocha": "",
+    "mongoose": "3.8.25"
   },
   "scripts": {
       "test": "mocha test -t 10000"
