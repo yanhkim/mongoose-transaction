@@ -191,4 +191,10 @@ if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
 }
 module.exports.nextTick = module.exports.nextTick || process.nextTick;
 
+module.exports.DEBUG = function() {
+    if (global.TRANSACTION_DEBUG_LOG) {
+        console.log.apply(console, arguments);
+    }
+};
+
 // vim: et ts=5 sw=4 sts=4 colorcolumn=80

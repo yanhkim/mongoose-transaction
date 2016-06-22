@@ -45,23 +45,19 @@ var mongooseutils = require('mongoose/lib/utils');
 var async = require('async');
 var _ = require('underscore');
 var utils = require('./utils');
+var atomic = require('./atomic');
+var TransactionError = require('./error');
+var DEFINE = require('./define');
+var ERROR_TYPE = DEFINE.ERROR_TYPE;
 
-module.exports = {};
-
-var DEBUG = function() {
-    if (global.TRANSACTION_DEBUG_LOG) {
-        console.log.apply(console, arguments);
-    }
+module.exports = {
+    TRANSACTION_ERRORS: ERROR_TYPE,
+    TransactionError: TransactionError,
 };
 
-var wrapMongoOp = utils.wrapMongoOp;
-var unwrapMongoOp = utils.unwrapMongoOp;
+var DEBUG = utils.DEBUG;
 
 var CollectionPseudoModelMap = {};
-
-var MONGOOSE_VERSIONS = mongoose.version.split('.').map(function(x) {
-    return parseInt(x, 10 );
-});
 
 //var VERSION_TRANSACTION = 4;
 var TRANSACTION_COLLECTION = module.exports.TRANSACTION_COLLECTION =
@@ -76,29 +72,6 @@ var TRANSACTION_EXPIRE_GAP = module.exports.TRANSACTION_EXPIRE_GAP =
 var NULL_OBJECTID = mongoose.Types.ObjectId("000000000000000000000000");
 module.exports.NULL_OBJECTID = NULL_OBJECTID;
 
-var TransactionError = module.exports.TransactionError =
-        function TransactionError(type, hint) {
-    Error.call(this);
-    Error.captureStackTrace(this, TransactionError);
-    this.name = 'TransactionError';
-    this.message = this.type = type || 'unknown';
-    this.hint = hint;
-};
-util.inherits(module.exports.TransactionError, Error);
-
-var TRANSACTION_ERRORS = module.exports.TRANSACTION_ERRORS = {
-    BROKEN_DATA: 40,
-    SOMETHING_WRONG: 41, // data not found or mongo response error
-    TRANSACTION_CONFLICT_1: 42, // sequence save
-    TRANSACTION_CONFLICT_2: 43, // transacted lock
-    TRANSACTION_EXPIRED: 44,
-    COMMON_ERROR_RETRY: 45,
-    JUST_RETRY: 46,
-    INVALID_COLLECTION: 50,
-    UNKNOWN_COMMIT_ERROR: 60,
-    INFINITE_LOOP: 70
-};
-
 // TODO: update expire time
 var TransactionSchema = new mongoose.Schema({
     history: [],
@@ -112,7 +85,7 @@ module.exports.bindShardKeyRule = function(schema, rule) {
     if (!rule || !rule.fields || !rule.rule || !rule.initialize ||
             !Object.keys(rule.rule).length ||
             typeof(rule.initialize) !== 'function') {
-        throw new TransactionError(TRANSACTION_ERRORS.BROKEN_DATA);
+        throw new TransactionError(ERROR_TYPE.BROKEN_DATA);
     }
     schema.add(rule.fields);
     schema.options.shardKey = rule.rule;
@@ -149,12 +122,12 @@ var _getCollectionName = function(model) {
 };
 var _getPseudoModel = function(model) {
     if (!model) {
-        throw new TransactionError(TRANSACTION_ERRORS.INVALID_COLLECTION);
+        throw new TransactionError(ERROR_TYPE.INVALID_COLLECTION);
     }
     var key = _getCollectionName(model);
     var pseudoModel = CollectionPseudoModelMap[key];
     if (!pseudoModel) {
-        throw new TransactionError(TRANSACTION_ERRORS.INVALID_COLLECTION,
+        throw new TransactionError(ERROR_TYPE.INVALID_COLLECTION,
                                    {collection: key});
     }
     return pseudoModel;
@@ -165,182 +138,6 @@ var _attachShardKey = function(doc) {
         return;
     }
     TransactionSchema.options.shardKey.initialize(doc);
-};
-
-// ## PseudoFindAndModify
-// These functions combine `update` and `find`,
-// emulate `findAndModify` of mongodb
-var pseudoFindAndModify = function(db, collectionName, query, update,
-                                   callback) {
-    var _writeOptions = {
-        w: 1 //, write concern,
-        // wtimeout: 0, // write concern wait timeout
-        // fsync: false, // write waits for fsync
-        // journal: false, // write waits for journal sync
-    };
-
-    sync.fiber(function() {
-        db.collection(collectionName, sync.defer());
-        var collection = sync.await();
-        collection.update(query, update, _writeOptions, sync.defer());
-        var numberUpdated = sync.await();
-        return {collection: collection, numberUpdated: numberUpdated};
-    }, function(err, ret) {
-        if (err) {
-            return callback(err);
-        }
-        callback(null, ret.numberUpdated, ret.collection);
-    });
-};
-
-// ### acquireTransactionLock
-// Only can use set `t` value to document or save without transaction.
-//
-// `query` must have **`t: NULL_OBJECTID`** condition
-//
-// #### Arguments
-// * db - :Db: SeeAlso `node-mongodb-native/lib/db.js`
-// * collectionName - :String:
-// * query - :Object:
-// * update - :Object:
-// * callback - :Function:
-//
-// #### Callback arguments
-// * err
-//
-// #### Transaction errors
-// * 41 - cannot found update target document
-// * 42 - conflict another transaction; document locked
-var acquireTransactionLock = function(db, collectionName, query, update,
-                                      callback) {
-    callback = callback || function() {};
-    sync.fiber(function() {
-        pseudoFindAndModify(db, collectionName, query, update,
-                            sync.defers('numberUpdated', 'collection'));
-        var __ = sync.await();
-        if (__.numberUpdated == 1) {
-            return;
-        }
-        var modQuery = unwrapMongoOp(wrapMongoOp(query));
-        // delete modQuery.t;
-        if (modQuery.$or) {
-            modQuery.$or = modQuery.$or.filter(function (cond) {
-                return !cond.t;
-            });
-            if (modQuery.$or.length === 0) {
-                delete modQuery.$or;
-            }
-        }
-        // if findOne return wrong result,
-        // `t` value changed to the another transaction
-        __.collection.findOne(modQuery, {_id: 1, t: 1}, sync.defer());
-        var updatedDoc = sync.await();
-        var t1 = String(update.t || ((update.$set || {}).t));
-        var t2 = String(updatedDoc && updatedDoc.t);
-        if (t1 == t2) {
-            return;
-        }
-        if (!updatedDoc) {
-            throw new TransactionError(
-                TRANSACTION_ERRORS.SOMETHING_WRONG,
-                {collection: collectionName, doc: query._id, query: query}
-            );
-        }
-        throw new TransactionError(
-            TRANSACTION_ERRORS.TRANSACTION_CONFLICT_1,
-            {collection: collectionName, doc: query._id, query: query}
-        );
-    }, callback);
-};
-
-// ### releaseTransactionLock
-// Only can use unset `t` value to document
-//
-// `query` must have **`t: ObjectId(...)** condition,
-// and `update` must have **`$set: {t: NULL_OBJECTID}`**
-//
-// #### Arguments
-// * db - :Db: SeeAlso `node-mongodb-native/lib/db.js`
-// * collectionName - :String:
-// * query - :Object:
-// * update - :Object:
-// * callback - :Function:
-//
-// #### Callback arguments
-// * err
-var releaseTransactionLock = function(db, collectionName, query, update,
-                                      callback) {
-    callback = callback || function() {};
-    sync.fiber(function() {
-        pseudoFindAndModify(db, collectionName, query, update,
-                            sync.defers('numberUpdated', 'collection'));
-        var __ = sync.await();
-        if (__.numberUpdated == 1) {
-            return;
-        }
-        // if findAndModify return wrong result,
-        // it only can wrong query case.
-        __.collection.findOne(query, {_id: 1, t: 1}, sync.defer());
-        var doc = sync.await();
-        if (!doc) {
-            return;
-        }
-        // if function use on the transaction base, should'nt find document.
-        // TODO: need cross check update field.
-        throw new Error('Transaction.commit> no matching document for commit');
-    }, callback);
-};
-
-// ### findAndModifyMongoNative
-// update document
-//
-// #### Arguments
-// * connection - :Connection:
-// * collection - :MongoCollection:
-// * query - :Object:
-// * update - :Object:
-// * callback - :Function:
-//
-// #### Callback arguments
-// * err
-// * doc - :Object:
-var findAndModifyMongoNative = function(connection, collection, query, update,
-                                        fields, callback) {
-    var data;
-    sync.fiber(function() {
-        // below 3.6.x
-        if (MONGOOSE_VERSIONS[0] < 3 ||
-                (MONGOOSE_VERSIONS[0] == 3 && MONGOOSE_VERSIONS[1] <= 6)) {
-            connection.db.executeDbCommand({findAndModify: collection.name,
-                                            query: query,
-                                            update: update,
-                                            fields: fields,
-                                            new: true},
-                                            sync.defer());
-            data = sync.await();
-            if (!data || !data.documents || !data.documents[0]) {
-                throw new TransactionError(TRANSACTION_ERRORS.SOMETHING_WRONG,
-                                           {collection: collection.name,
-                                            query: query, update: update});
-            }
-            return data.documents[0].value;
-        }
-        collection.findAndModify(query, [], update,
-                                 {fields: fields, new: true},
-                                 sync.defer());
-        data = sync.await();
-        // above to 3.7.x less than 4.x
-        if (MONGOOSE_VERSIONS[0] < 4) {
-            return data;
-        }
-        if (!data) {
-            throw new TransactionError(TRANSACTION_ERRORS.SOMETHING_WRONG,
-                                       {collection: collection.name,
-                                        query: query, update: update});
-        }
-        // above 4.x
-        return data.value;
-    }, callback);
 };
 
 // ## Transaction
@@ -413,7 +210,7 @@ TransactionSchema.methods.begin = function(callback) {
 // * 40 - document already has `t` value, value is not match transaction's id
 // * 50 - unknown colllection
 //
-// SeeAlso :acquireTransactionLock:
+// SeeAlso :atomic.acquireTransactionLock:
 TransactionSchema.methods.add = function (doc, callback) {
     callback = callback || function() {};
     var self = this;
@@ -436,7 +233,7 @@ TransactionSchema.methods.add = function (doc, callback) {
         }
         if (doc.t && !NULL_OBJECTID.equals(doc.t) &&
                 doc.t.toString() != self._id.toString()) {
-            throw new TransactionError(TRANSACTION_ERRORS.BROKEN_DATA,
+            throw new TransactionError(ERROR_TYPE.BROKEN_DATA,
                                        {collection:
                                            doc && _getCollectionName(doc),
                                         doc: doc && doc._id,
@@ -450,8 +247,8 @@ TransactionSchema.methods.add = function (doc, callback) {
             {t: {$exists: false}}]};
         addShardKeyDatas(pseudoModel, doc, query);
         var update = {$set: {t: self._id}};
-        acquireTransactionLock(pseudoModel.connection.db, doc.collection.name,
-                               query, update, sync.defer()); sync.await();
+        atomic.acquireLock(pseudoModel.connection.db, doc.collection.name,
+                           query, update, sync.defer()); sync.await();
         self._docs.push(doc);
     }, callback);
 };
@@ -507,16 +304,16 @@ TransactionSchema.methods._moveState = function(prev, delta, callback) {
     var query = {_id: self._id, state: prev};
     _attachShardKey(query);
     sync.fiber(function() {
-        pseudoFindAndModify(transactionModel.connection.db,
-                            RAW_TRANSACTION_COLLECTION, query, delta,
-                            sync.defers('numberUpdated', 'collection'));
+        atomic.pseudoFindAndModify(transactionModel.connection.db,
+                                   RAW_TRANSACTION_COLLECTION, query, delta,
+                                   sync.defers('numberUpdated', 'collection'));
         var __ = sync.await();
         if (__.numberUpdated == 1) {
             return;
         }
         // if `findAndModify` return wrong result,
         // it only can wrong query case.
-        var modQuery = unwrapMongoOp(wrapMongoOp(query));
+        var modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
         delete modQuery.state;
 
         __.collection.findOne(modQuery, sync.defer());
@@ -524,7 +321,7 @@ TransactionSchema.methods._moveState = function(prev, delta, callback) {
         var state1 = delta.state || ((delta.$set || {}).state);
         var state2 = updatedDoc && updatedDoc.state;
         if (state1 != state2) {
-            throw new TransactionError(TRANSACTION_ERRORS.SOMETHING_WRONG,
+            throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
                                        {transaction: self, query: query});
         }
         return (updatedDoc && updatedDoc.history) || [];
@@ -572,10 +369,10 @@ TransactionSchema.methods.commit = function (callback) {
                 });
                 return;
             }
-            var op = unwrapMongoOp(JSON.parse(history.op));
+            var op = utils.unwrapMongoOp(JSON.parse(history.op));
             removeShardKeySetData(pseudoModel.shardKey, op);
-            releaseTransactionLock(pseudoModel.connection.db, history.col, query,
-                                   op, function(err) {
+            atomic.releaseLock(pseudoModel.connection.db, history.col, query,
+                               op, function(err) {
                 if (err) {
                     errors.push(err);
                 }
@@ -644,7 +441,7 @@ TransactionSchema.methods._makeHistory = function(callback) {
             }
 
             DEBUG('DELTA', doc.collection.name, ':', JSON.stringify(delta));
-            history.op = delta && JSON.stringify(wrapMongoOp(delta));
+            history.op = delta && JSON.stringify(utils.wrapMongoOp(delta));
 
             doc.$__reset();
             next();
@@ -682,7 +479,7 @@ TransactionSchema.methods._commit = function(callback) {
     if (self.state == 'expire') {
         DEBUG('transaction expired', self._id);
         return callback(
-            new TransactionError(TRANSACTION_ERRORS.TRANSACTION_EXPIRED,
+            new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED,
                                  {transaction: self})
         );
     }
@@ -698,14 +495,14 @@ TransactionSchema.methods._commit = function(callback) {
                     throw errors[0];
                 }
                 throw new TransactionError(
-                    TRANSACTION_ERRORS.UNKNOWN_COMMIT_ERROR,
+                    ERROR_TYPE.UNKNOWN_COMMIT_ERROR,
                     {transaction: self}
                 );
             }
         }
         if (self.isExpired()) {
             self.expire(sync.defer()); sync.await();
-            throw new TransactionError(TRANSACTION_ERRORS.TRANSACTION_EXPIRED,
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED,
                                        {transaction: self});
         }
         self.state = 'commit';
@@ -719,7 +516,7 @@ TransactionSchema.methods._commit = function(callback) {
             // this case only can db error or already expired
             self.state = undefined;
             self.expire(sync.defer()); sync.await();
-            throw new TransactionError(TRANSACTION_ERRORS.UNKNOWN_COMMIT_ERROR,
+            throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR,
                                        {transaction: self});
         }
         if (!history) {
@@ -814,9 +611,8 @@ TransactionSchema.methods.expire = function(callback) {
                 });
                 return;
             }
-            releaseTransactionLock(pseudoModel.connection.db, history.col, query,
-                                   {$set: {t: NULL_OBJECTID}},
-                                   function(err) {
+            atomic.releaseLock(pseudoModel.connection.db, history.col, query,
+                               {$set: {t: NULL_OBJECTID}}, function(err) {
                 if (err) {
                     errors.push(err);
                 }
@@ -868,7 +664,7 @@ TransactionSchema.methods._postProcess = function(callback) {
                 return this.expire(callback);
             }
             return callback(
-                new TransactionError(TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
+                new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
                                      {collection: _getCollectionName(this),
                                       transaction: this})
             );
@@ -966,7 +762,7 @@ TransactionSchema.methods.find = function(model, conditions, options,
                         }
                         if (!remainRetry) {
                             throw new TransactionError(
-                                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
+                                ERROR_TYPE.TRANSACTION_CONFLICT_2,
                                 {collection: _doc && _getCollectionName(_doc),
                                  doc: _doc && _doc._id, query: query,
                                  transaction: self}
@@ -1060,7 +856,7 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
             }
             if (!remainRetry) {
                 throw new TransactionError(
-                    TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
+                    ERROR_TYPE.TRANSACTION_CONFLICT_2,
                     {collection: _doc && _getCollectionName(_doc),
                      doc: _doc && _doc._id, query: query1, transaction: self}
                 );
@@ -1118,20 +914,19 @@ var saveWithoutTransaction = function(next, callback) {
         addShardKeyDatas(pseudoModel, self, query);
         // TODO: need delta cross check
         var checkFields = {t: 1};
-        findAndModifyMongoNative(pseudoModel.connection, self.collection,
-                                 query, delta, checkFields,
-                                 sync.defer());
+        atomic.findAndModify(pseudoModel.connection, self.collection,
+                             query, delta, checkFields, sync.defer());
         var data = sync.await();
         if (!data) {
             throw new TransactionError(
-                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_1,
+                ERROR_TYPE.TRANSACTION_CONFLICT_1,
                 {collection: _getCollectionName(self), doc: self._id,
                  query: query}
             );
         }
         if (data.t && !NULL_OBJECTID.equals(data.t)) {
             throw new TransactionError(
-                TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
+                ERROR_TYPE.TRANSACTION_CONFLICT_2,
                 {collection: _getCollectionName(self), doc: self._id,
                  query: query}
             );
@@ -1145,7 +940,7 @@ module.exports.plugin = function(schema) {
                     'default': NULL_OBJECTID}});
     schema.add({__new: Boolean});
 
-    if (MONGOOSE_VERSIONS[0] < 4) {
+    if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
         schema.post('init', function() {
             var self = this;
             self._oldSave = self.save;
@@ -1285,13 +1080,10 @@ var recheckTransactions = function(model, transactedDocs, callback) {
                     return model.collection.remove(query,
                                                    next);
                 }
-                return releaseTransactionLock(
-                    pseudoModel.connection.db,
-                    model.collection.name,
-                    query,
-                    {$set: {t: NULL_OBJECTID}},
-                    next
-                );
+                return atomic.releaseLock(pseudoModel.connection.db,
+                                          model.collection.name,
+                                          query, {$set: {t: NULL_OBJECTID}},
+                                          next);
             }, sync.defer()); sync.await();
         });
     }, callback);
@@ -1363,7 +1155,7 @@ var find = function(proto) {
                 sync.await();
             }
             throw new TransactionError(
-                TRANSACTION_ERRORS.INFINITE_LOOP,
+                ERROR_TYPE.INFINITE_LOOP,
                 {collection: _getCollectionName(proto.model),
                  query: args.length > 1 && args[0] || {}}
             );

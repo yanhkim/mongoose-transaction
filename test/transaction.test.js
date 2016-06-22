@@ -5,7 +5,8 @@ var async = require('async');
 var sync = require('synchronize');
 global.TRANSACTION_DEBUG_LOG = false;
 var transaction = require('../index');
-var ERRORS = transaction.TRANSACTION_ERRORS;
+var DEFINE = require('../define');
+var ERRORS = DEFINE.ERROR_TYPE;
 
 var connection;
 var Test;
