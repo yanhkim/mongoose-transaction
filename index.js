@@ -170,8 +170,8 @@ var _attachShardKey = function(doc) {
 // ## PseudoFindAndModify
 // These functions combine `update` and `find`,
 // emulate `findAndModify` of mongodb
-var _pseudoFindAndModify = function(db, collectionName, query, update,
-                                    callback) {
+var pseudoFindAndModify = function(db, collectionName, query, update,
+                                   callback) {
     var _writeOptions = {
         w: 1 //, write concern,
         // wtimeout: 0, // write concern wait timeout
@@ -193,7 +193,7 @@ var _pseudoFindAndModify = function(db, collectionName, query, update,
     });
 };
 
-// ### pseudoFindAndModify1
+// ### acquireTransactionLock
 // Only can use set `t` value to document or save without transaction.
 //
 // `query` must have **`t: NULL_OBJECTID`** condition
@@ -211,12 +211,12 @@ var _pseudoFindAndModify = function(db, collectionName, query, update,
 // #### Transaction errors
 // * 41 - cannot found update target document
 // * 42 - conflict another transaction; document locked
-var pseudoFindAndModify1 = function(db, collectionName, query, update,
-                                    callback) {
+var acquireTransactionLock = function(db, collectionName, query, update,
+                                      callback) {
     callback = callback || function() {};
     sync.fiber(function() {
-        _pseudoFindAndModify(db, collectionName, query, update,
-                             sync.defers('numberUpdated', 'collection'));
+        pseudoFindAndModify(db, collectionName, query, update,
+                            sync.defers('numberUpdated', 'collection'));
         var __ = sync.await();
         if (__.numberUpdated == 1) {
             return;
@@ -253,7 +253,7 @@ var pseudoFindAndModify1 = function(db, collectionName, query, update,
     }, callback);
 };
 
-// ### pseudoFindAndModify2
+// ### releaseTransactionLock
 // Only can use unset `t` value to document
 //
 // `query` must have **`t: ObjectId(...)** condition,
@@ -268,12 +268,12 @@ var pseudoFindAndModify1 = function(db, collectionName, query, update,
 //
 // #### Callback arguments
 // * err
-var pseudoFindAndModify2 = function(db, collectionName, query, update,
-                                    callback) {
+var releaseTransactionLock = function(db, collectionName, query, update,
+                                      callback) {
     callback = callback || function() {};
     sync.fiber(function() {
-        _pseudoFindAndModify(db, collectionName, query, update,
-                             sync.defers('numberUpdated', 'collection'));
+        pseudoFindAndModify(db, collectionName, query, update,
+                            sync.defers('numberUpdated', 'collection'));
         var __ = sync.await();
         if (__.numberUpdated == 1) {
             return;
@@ -413,7 +413,7 @@ TransactionSchema.methods.begin = function(callback) {
 // * 40 - document already has `t` value, value is not match transaction's id
 // * 50 - unknown colllection
 //
-// SeeAlso :pseudoFindAndModify1:
+// SeeAlso :acquireTransactionLock:
 TransactionSchema.methods.add = function (doc, callback) {
     callback = callback || function() {};
     var self = this;
@@ -450,8 +450,8 @@ TransactionSchema.methods.add = function (doc, callback) {
             {t: {$exists: false}}]};
         addShardKeyDatas(pseudoModel, doc, query);
         var update = {$set: {t: self._id}};
-        pseudoFindAndModify1(pseudoModel.connection.db, doc.collection.name,
-                             query, update, sync.defer()); sync.await();
+        acquireTransactionLock(pseudoModel.connection.db, doc.collection.name,
+                               query, update, sync.defer()); sync.await();
         self._docs.push(doc);
     }, callback);
 };
@@ -507,9 +507,9 @@ TransactionSchema.methods._moveState = function(prev, delta, callback) {
     var query = {_id: self._id, state: prev};
     _attachShardKey(query);
     sync.fiber(function() {
-        _pseudoFindAndModify(transactionModel.connection.db,
-                             RAW_TRANSACTION_COLLECTION, query, delta,
-                             sync.defers('numberUpdated', 'collection'));
+        pseudoFindAndModify(transactionModel.connection.db,
+                            RAW_TRANSACTION_COLLECTION, query, delta,
+                            sync.defers('numberUpdated', 'collection'));
         var __ = sync.await();
         if (__.numberUpdated == 1) {
             return;
@@ -574,8 +574,8 @@ TransactionSchema.methods.commit = function (callback) {
             }
             var op = unwrapMongoOp(JSON.parse(history.op));
             removeShardKeySetData(pseudoModel.shardKey, op);
-            pseudoFindAndModify2(pseudoModel.connection.db, history.col, query,
-                                 op, function(err) {
+            releaseTransactionLock(pseudoModel.connection.db, history.col, query,
+                                   op, function(err) {
                 if (err) {
                     errors.push(err);
                 }
@@ -814,9 +814,9 @@ TransactionSchema.methods.expire = function(callback) {
                 });
                 return;
             }
-            pseudoFindAndModify2(pseudoModel.connection.db, history.col, query,
-                                 {$set: {t: NULL_OBJECTID}},
-                                 function(err) {
+            releaseTransactionLock(pseudoModel.connection.db, history.col, query,
+                                   {$set: {t: NULL_OBJECTID}},
+                                   function(err) {
                 if (err) {
                     errors.push(err);
                 }
@@ -1285,7 +1285,7 @@ var recheckTransactions = function(model, transactedDocs, callback) {
                     return model.collection.remove(query,
                                                    next);
                 }
-                return pseudoFindAndModify2(
+                return releaseTransactionLock(
                     pseudoModel.connection.db,
                     model.collection.name,
                     query,
