@@ -255,7 +255,7 @@ describe('Save with transaction', function() {
             var x = newTest({num: 1});
             self.t.add(x);
             self.t.remove();
-            Test.findWithWaitRetry({_id: x._id}, sync.defer());
+            Test.find({_id: x._id}, sync.defer());
             var _x = sync.await();
             should.exists(_x);
             _x.length.should.eql(0);
@@ -785,7 +785,7 @@ describe('Transaction lock', function() {
         }, done);
     });
 
-    it('transaction.findOneWithWaitRetry should raise error ' +
+    it('transaction.findOne should raise error ' +
             'at try fetch to locked document ' +
             'and previous transaction was alive',
        function(done) {
@@ -796,7 +796,7 @@ describe('Transaction lock', function() {
             var t1 = sync.await();
             //var st = +new Date();
             try {
-                t1.findOneWithWaitRetry(Test, {_id: self.x._id}, sync.defer());
+                t1.findOne(Test, {_id: self.x._id}, sync.defer());
                 sync.await();
                 should.fail('no error was thrown');
             } catch(e) {
@@ -806,7 +806,7 @@ describe('Transaction lock', function() {
         }, done);
     });
 
-    it('transaction.findOneWithWaitRetry should wait ' +
+    it('transaction.findOne should wait ' +
             'unlock previous transaction lock',
        function(done) {
         var self = this;
@@ -816,8 +816,7 @@ describe('Transaction lock', function() {
             self.t.add(self.x);
             async.parallel([
                 function (next) {
-                    t1.findOneWithWaitRetry(Test, {_id: self.x._id},
-                                            function (err, _x) {
+                    t1.findOne(Test, {_id: self.x._id}, function (err, _x) {
                         should.not.exists(err);
                         should.exists(_x);
                         _x.t.should.eql(t1._id);

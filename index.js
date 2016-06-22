@@ -1156,7 +1156,7 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
 //
 // #### Transaction errors
 // SeeAlso :Transaction.findOne:
-TransactionSchema.methods.findOneWithWaitRetry = function(model, conditions,
+TransactionSchema.methods.findOne = function(model, conditions,
                                                           options, callback) {
     var self = this;
     if (typeof(conditions) == 'function') {
