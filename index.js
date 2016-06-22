@@ -893,7 +893,7 @@ TransactionSchema.methods.convertQueryForAvoidConflict =
 // ### Transaction.find
 // Find documents with assgined `t`
 //
-// TODO: rename like `findAndAttachT`
+// If conflict another process, this method wait and retry action
 //
 // #### Arguments
 // * model - :TransactedModel:
@@ -910,88 +910,6 @@ TransactionSchema.methods.convertQueryForAvoidConflict =
 // * 50 - unknown collection
 TransactionSchema.methods.find = function(model, conditions, options,
                                           callback) {
-    var self = this;
-    if (typeof(conditions) == 'function') {
-        callback = conditions;
-        conditions = {};
-        options = {};
-    }
-    if (typeof(options) == 'function') {
-        callback = options;
-        options = {};
-    }
-    callback = callback || function() {};
-    conditions = conditions || {};
-    conditions.$or = conditions.$or || [];
-    conditions.$or = conditions.$or.concat([{t: NULL_OBJECTID},
-                                            {t: {$exists: false}}]);
-    var pseudoModel;
-    try {
-        pseudoModel = _getPseudoModel(model);
-    } catch(e) {
-        return callback(e);
-    }
-
-    sync.fiber(function() {
-        // FIXME reduce db query
-        // - define select fields; it only need `_id`
-        // - maybe find query should'nt contains `t: NULL_OBJECTID`
-        model.collection.find(conditions, options, sync.defer());
-        var cursor = sync.await();
-        cursor.toArray(sync.defer());
-        var docs = sync.await();
-        if (!docs) {
-            return;
-        }
-        async.map(docs, function(_doc, next) {
-            var query = {_id: _doc._id, $or: [{t: NULL_OBJECTID},
-                                              {t: {$exists: false}}]};
-            addShardKeyDatas(pseudoModel, _doc, query);
-            model.findOneAndUpdate(query, {$set: {t: self._id}},
-                                   {new: true, fields: options.fields},
-                                   function(err, doc) {
-                if (err) {
-                    return next(err);
-                }
-                if (!doc) {
-                    return next(
-                        new TransactionError(
-                            TRANSACTION_ERRORS.TRANSACTION_CONFLICT_2,
-                            {collection: _doc && _getCollectionName(_doc),
-                             doc: _doc && _doc._id, query: query,
-                             transaction: self}
-                        )
-                    );
-                }
-                self._docs.push(doc);
-                next(null, doc);
-            });
-        }, sync.defer());
-        return sync.await();
-    }, callback);
-};
-
-// ### Transaction.findWithWaitRetry
-// Find documents with assgined `t`
-//
-// If conflict another process, this method wait and retry action
-//
-// FIXME: merge to :Transaction.find:
-//
-// #### Arguments
-// * model - :TransactedModel:
-// * conditions - :Object:
-// * options - :Object:
-// * callback - :Function:
-//
-// #### Callback arguments
-// * err
-// * docs - :Array:
-//
-// #### Transaction errors
-// SeeAlso :Transaction.find:
-TransactionSchema.methods.findWithWaitRetry = function(model, conditions,
-                                                       options, callback) {
     var self = this;
     if (typeof(conditions) == 'function') {
         callback = conditions;
@@ -1137,12 +1055,10 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
     }, callback);
 };
 
-// ### Transaction.findOneWithWaitRetry
+// ### Transaction.findOne
 // Find documents with assgined `t`
 //
 // If conflict another process, this method wait and retry action
-//
-// FIXME: merge to :Transaction.findOne:
 //
 // #### Arguments
 // * model - :TransactedModel:
@@ -1155,9 +1071,10 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
 // * doc - :Document:
 //
 // #### Transaction errors
-// SeeAlso :Transaction.findOne:
-TransactionSchema.methods.findOne = function(model, conditions,
-                                                          options, callback) {
+// * 43 - conflict another transaction; transaction still alive
+// * 50 - unknown collection
+TransactionSchema.methods.findOne = function(model, conditions, options,
+                                             callback) {
     var self = this;
     if (typeof(conditions) == 'function') {
         callback = conditions;
@@ -1538,7 +1455,7 @@ var findForce = function(proto) {
     };
 };
 
-// ### TransactedModel.find...WithWaitRetry
+// ### TransactedModel.find...
 // Document during query, if conflict the another transaction,
 // method will wait-and-retry a number of times.
 //
@@ -1551,7 +1468,7 @@ var findForce = function(proto) {
 //
 // #### Transaction errors
 // SeeAlso :TransactedModel.find...:
-var findWithWaitRetry = function(proto) {
+var findWaitUnlock = function(proto) {
     return function() {
         var args = Array.prototype.slice.call(arguments);
         var callback = args[args.length - 1];
@@ -1643,15 +1560,12 @@ module.exports.TransactedModel = function(connection, modelName, schema) {
         proto.orig = proto.target[proto.name];
         // FIXME
         proto.target[proto.name + 'Force'] = proto.orig;
-        model[methodName] = find(proto);
+        model[methodName] = findWaitUnlock(proto);
         model[methodName + 'Force'] = findForce(proto);
-        model[methodName + 'WithWaitRetry'] =
-                proto.target[proto.name + 'WithWaitRetry'] =
-                findWithWaitRetry(proto);
     });
 
     // syntactic sugar
-    ['', 'Force', 'WithWaitRetry'].forEach(function (lock) {
+    ['', 'Force'].forEach(function (lock) {
         model['findById' + lock] = function () {
             var args = Array.prototype.slice.call(arguments);
             args[0] = {_id: args[0]};

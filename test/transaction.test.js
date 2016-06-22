@@ -371,14 +371,14 @@ describe('Find documents from model', function() {
         }, done);
     });
 
-    it('findOneWithWaitRetry should wait previous transaction lock',
+    it('findOne should wait previous transaction lock',
        function(done) {
         var self = this;
         sync.fiber(function() {
             self.t.add(self.x);
             //var st = +new Date();
             try {
-                Test.findOneWithWaitRetry({_id: self.x._id}, sync.defer());
+                Test.findOne({_id: self.x._id}, sync.defer());
                 sync.await();
                 should.fail('no error was thrown');
             } catch(e) {
@@ -579,11 +579,11 @@ describe('Find documents from transaction', function() {
         }, done);
     });
 
-    it('findWithWaitRetry fetch documents and automatic set transaction lock',
+    it('find fetch documents and automatic set transaction lock',
        function(done) {
         var self = this;
         sync.fiber(function() {
-            self.t.findWithWaitRetry(Test, {_id: self.x._id}, sync.defer());
+            self.t.find(Test, {_id: self.x._id}, sync.defer());
             var docs = sync.await();
             should.exist(docs);
             Array.isArray(docs).should.be.true;
@@ -739,7 +739,7 @@ describe('Transaction lock', function() {
         }, done);
     });
 
-    it('model.findOneWithWaitRetry should wait ' +
+    it('model.findOne should wait ' +
             'unlock previous transaction lock',
        function(done) {
         var self = this;
@@ -748,8 +748,7 @@ describe('Transaction lock', function() {
             self.t.add(x);
             async.parallel([
                 function (next) {
-                    Test.findOneWithWaitRetry({_id: self.x._id},
-                                              function (err, _x) {
+                    Test.findOne({_id: self.x._id}, function (err, _x) {
                         should.not.exists(err);
                         should.exists(_x);
                         _x.t.should.eql(transaction.NULL_OBJECTID);
