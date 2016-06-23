@@ -1,4 +1,5 @@
 // ## PseudoFindAndModify
+"use strict";
 var sync = require('synchronize');
 var utils = require('./utils');
 var TransactionError = require('./error');
@@ -90,14 +91,11 @@ var acquireTransactionLock = function(db, collectionName, query, update,
         if (t1 == t2) {
             return;
         }
+        var hint = {collection: collectionName, doc: query._id, query: query};
         if (!updatedDoc) {
-            throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
-                                       {collection: collectionName,
-                                        doc: query._id, query: query});
+            throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG, hint);
         }
-        throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_1,
-                                   {collection: collectionName,
-                                    doc: query._id, query: query});
+        throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_1, hint);
     }, callback);
 };
 
@@ -197,4 +195,5 @@ module.exports = {
     acquireLock: acquireTransactionLock,
     releaseLock: releaseTransactionLock,
     findAndModify: findAndModifyMongoNative,
-}
+};
+// vim: et ts=5 sw=4 sts=4 colorcolumn=80

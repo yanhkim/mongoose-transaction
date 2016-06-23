@@ -1,3 +1,4 @@
+"use strict";
 var TransactionError = require('./error');
 var DEFINE = require('./define');
 var ERROR_TYPE = DEFINE.ERROR_TYPE;
@@ -41,5 +42,5 @@ module.exports = {
     getCollectionName: getCollectionName,
     getPseudoModel: getPseudoModel,
     addCollectionPseudoModelPair: addCollectionPseudoModelPair,
-}
+};
 // vim: et ts=5 sw=4 sts=4 colorcolumn=80

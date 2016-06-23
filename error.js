@@ -1,3 +1,4 @@
+"use strict";
 var util = require('util');
 
 var TransactionError = module.exports.TransactionError =
@@ -11,3 +12,4 @@ var TransactionError = module.exports.TransactionError =
 util.inherits(TransactionError, Error);
 
 module.exports = TransactionError;
+// vim: et ts=5 sw=4 sts=4 colorcolumn=80

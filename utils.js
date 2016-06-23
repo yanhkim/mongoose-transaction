@@ -178,16 +178,16 @@ var NODE_VERSIONS =
 
 var nextTick;
 if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
-	if (global.setImmediate) {
-		nextTick = global.setImmediate;
-	} else {
-		var timers = require('timers');
-		if (timers.setImmediate) {
-			nextTick = function() {
-				timers.setImmediate.apply(this, arguments);
-			};
-          }
-	}
+    if (global.setImmediate) {
+        nextTick = global.setImmediate;
+    } else {
+        var timers = require('timers');
+        if (timers.setImmediate) {
+            nextTick = function() {
+                timers.setImmediate.apply(this, arguments);
+            };
+        }
+    }
 }
 
 var DEBUG = function() {

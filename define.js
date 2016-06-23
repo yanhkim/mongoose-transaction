@@ -1,3 +1,4 @@
+"use strict";
 var mongoose = require('mongoose');
 
 var MONGOOSE_VERSIONS = mongoose.version.split('.').map(function(x) {
@@ -21,4 +22,5 @@ module.exports = {
     MONGOOSE_VERSIONS: MONGOOSE_VERSIONS,
     ERROR_TYPE: ERROR_TYPE,
     NULL_OBJECTID: mongoose.Types.ObjectId("000000000000000000000000"),
-}
+};
+// vim: et ts=5 sw=4 sts=4 colorcolumn=80

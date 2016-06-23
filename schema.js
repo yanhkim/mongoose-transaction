@@ -1,3 +1,4 @@
+"use strict";
 var async = require('async');
 var sync = require('synchronize');
 var mongoose = require('mongoose');

@@ -38,7 +38,6 @@
 // So, we decide if update result count is 0, send `findOne` command,
 // recheck document change.
 "use strict";
-var util = require('util');
 var sync = require('synchronize');
 var mongoose = require('mongoose');
 var async = require('async');
@@ -88,17 +87,6 @@ var addShardKeyDatas = function(pseudoModel, src, dest) {
         return;
     }
     pseudoModel.shardKey.forEach(function(sk) { dest[sk] = src[sk]; });
-};
-var removeShardKeySetData = function(shardKey, op) {
-    if (!shardKey || !Array.isArray(shardKey)) {
-        return;
-    }
-    if (!op.$set) {
-        return;
-    }
-    shardKey.forEach(function(sk) {
-        delete op.$set[sk];
-    });
 };
 var getShardKeyArray = function(shardKey) {
     return Array.isArray(shardKey) ? shardKey : [];
