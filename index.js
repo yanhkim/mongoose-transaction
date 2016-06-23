@@ -70,7 +70,7 @@ var TRANSACTION_EXPIRE_GAP = module.exports.TRANSACTION_EXPIRE_GAP =
         ONE_MINUTE;
 
 var NULL_OBJECTID = mongoose.Types.ObjectId("000000000000000000000000");
-module.exports.NULL_OBJECTID = NULL_OBJECTID;
+module.exports.NULL_OBJECTID = DEFINE.NULL_OBJECTID;
 
 // TODO: update expire time
 var TransactionSchema = new mongoose.Schema({
@@ -231,7 +231,7 @@ TransactionSchema.methods.add = function (doc, callback) {
             self._docs.push(doc);
             return;
         }
-        if (doc.t && !NULL_OBJECTID.equals(doc.t) &&
+        if (doc.t && !DEFINE.NULL_OBJECTID.equals(doc.t) &&
                 doc.t.toString() != self._id.toString()) {
             throw new TransactionError(ERROR_TYPE.BROKEN_DATA,
                                        {collection:
@@ -239,11 +239,11 @@ TransactionSchema.methods.add = function (doc, callback) {
                                         doc: doc && doc._id,
                                         transaction: self});
         }
-        if (doc.t && !NULL_OBJECTID.equals(doc.t)) {
+        if (doc.t && !DEFINE.NULL_OBJECTID.equals(doc.t)) {
             // FIXME: preload transacted
             return;
         }
-        var query = {_id: doc._id, $or: [{t: NULL_OBJECTID},
+        var query = {_id: doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
             {t: {$exists: false}}]};
         addShardKeyDatas(pseudoModel, doc, query);
         var update = {$set: {t: self._id}};
@@ -429,7 +429,7 @@ TransactionSchema.methods._makeHistory = function(callback) {
 
             var delta = utils.extractDelta(doc);
             delta.$set = delta.$set || {};
-            delta.$set.t = NULL_OBJECTID;
+            delta.$set.t = DEFINE.NULL_OBJECTID;
 
             if (doc.isNew) {
                 delta.$set = doc.toObject({depopulate: 1});
@@ -612,7 +612,8 @@ TransactionSchema.methods.expire = function(callback) {
                 return;
             }
             atomic.releaseLock(pseudoModel.connection.db, history.col, query,
-                               {$set: {t: NULL_OBJECTID}}, function(err) {
+                               {$set: {t: DEFINE.NULL_OBJECTID}},
+                               function(err) {
                 if (err) {
                     errors.push(err);
                 }
@@ -681,7 +682,7 @@ TransactionSchema.methods.convertQueryForAvoidConflict =
         function getQueryForAvoidConflict(conditions) {
     conditions = conditions || {};
     conditions.$or = conditions.$or || [];
-    conditions.$or = conditions.$or.concat([{t: NULL_OBJECTID},
+    conditions.$or = conditions.$or.concat([{t: DEFINE.NULL_OBJECTID},
                                             {t: {$exists: false}}]);
     return conditions;
 };
@@ -719,7 +720,7 @@ TransactionSchema.methods.find = function(model, conditions, options,
     callback = callback || function() {};
     conditions = conditions || {};
     conditions.$or = conditions.$or || [];
-    conditions.$or = conditions.$or.concat([{t: NULL_OBJECTID},
+    conditions.$or = conditions.$or.concat([{t: DEFINE.NULL_OBJECTID},
                                             {t: {$exists: false}}]);
 
     var pseudoModel;
@@ -738,7 +739,7 @@ TransactionSchema.methods.find = function(model, conditions, options,
             return;
         }
         async.map(docs, function(_doc, next) {
-            var query = {_id: _doc._id, $or: [{t: NULL_OBJECTID},
+            var query = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                               {t: {$exists: false}}]};
             addShardKeyDatas(pseudoModel, _doc, query);
 
@@ -831,7 +832,7 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
         if (!_doc) {
             return;
         }
-        var query1 = {_id: _doc._id, $or: [{t: NULL_OBJECTID},
+        var query1 = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                           {t: {$exists: false}}]};
         addShardKeyDatas(pseudoModel, _doc, query1);
         var query2 = {_id: _doc._id};
@@ -909,7 +910,7 @@ var saveWithoutTransaction = function(next, callback) {
         var pseudoModel = _getPseudoModel(self);
         self.$__reset();
         // manually save document only can `t` value is unset or NULL_OBJECTID
-        var query = {_id: self._id, $or:[{t: NULL_OBJECTID},
+        var query = {_id: self._id, $or:[{t: DEFINE.NULL_OBJECTID},
                                          {t: {$exists: false}}]};
         addShardKeyDatas(pseudoModel, self, query);
         // TODO: need delta cross check
@@ -924,7 +925,7 @@ var saveWithoutTransaction = function(next, callback) {
                  query: query}
             );
         }
-        if (data.t && !NULL_OBJECTID.equals(data.t)) {
+        if (data.t && !DEFINE.NULL_OBJECTID.equals(data.t)) {
             throw new TransactionError(
                 ERROR_TYPE.TRANSACTION_CONFLICT_2,
                 {collection: _getCollectionName(self), doc: self._id,
@@ -937,7 +938,7 @@ var saveWithoutTransaction = function(next, callback) {
 
 module.exports.plugin = function(schema) {
     schema.add({t: {type: mongoose.Schema.Types.ObjectId,
-                    'default': NULL_OBJECTID}});
+                    'default': DEFINE.NULL_OBJECTID}});
     schema.add({__new: Boolean});
 
     if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
@@ -1017,7 +1018,7 @@ var filterTransactedDocs = function(docs, callback) {
                 if (!doc) {
                     break;
                 }
-                if (!doc.t || NULL_OBJECTID.equals(doc.t)) {
+                if (!doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                     continue;
                 }
                 transactionIdDocsMap[doc.t] =
@@ -1030,8 +1031,7 @@ var filterTransactedDocs = function(docs, callback) {
         }
         if (docs.forEach) {
             docs.forEach(function(doc) {
-                if (!doc || !doc.t ||
-                        NULL_OBJECTID.equals(doc.t)) {
+                if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                     return;
                 }
                 transactionIdDocsMap[doc.t] =
@@ -1080,10 +1080,10 @@ var recheckTransactions = function(model, transactedDocs, callback) {
                     return model.collection.remove(query,
                                                    next);
                 }
+                var updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};
                 return atomic.releaseLock(pseudoModel.connection.db,
                                           model.collection.name,
-                                          query, {$set: {t: NULL_OBJECTID}},
-                                          next);
+                                          query, updateQuery, next);
             }, sync.defer()); sync.await();
         });
     }, callback);
@@ -1248,7 +1248,7 @@ module.exports.TransactedModel = function(connection, modelName, schema) {
     var toJSON = model.prototype.toJSON;
     model.prototype.toJSON = function transactedModelToJSON(options) {
         var res = toJSON.call(this, options);
-        if (res.t && NULL_OBJECTID.equals(res.t)) {
+        if (res.t && DEFINE.NULL_OBJECTID.equals(res.t)) {
             delete res.t;
         }
         return res;
