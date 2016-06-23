@@ -382,6 +382,7 @@ TransactionSchema.methods._commit = function(callback) {
     }
 
     sync.fiber(function() {
+        var hint = {transaction: self};
         try {
             self._makeHistory(sync.defer()); sync.await();
         } catch(errors) {
@@ -391,16 +392,13 @@ TransactionSchema.methods._commit = function(callback) {
                 if (errors[0]) {
                     throw errors[0];
                 }
-                throw new TransactionError(
-                    ERROR_TYPE.UNKNOWN_COMMIT_ERROR,
-                    {transaction: self}
-                );
+                throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR,
+                                           hint);
             }
         }
         if (self.isExpired()) {
             self.expire(sync.defer()); sync.await();
-            throw new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED,
-                                       {transaction: self});
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED, hint);
         }
         self.state = 'commit';
         DEBUG('transaction commit', self._id);
@@ -413,8 +411,7 @@ TransactionSchema.methods._commit = function(callback) {
             // this case only can db error or already expired
             self.state = undefined;
             self.expire(sync.defer()); sync.await();
-            throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR,
-                                       {transaction: self});
+            throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR, hint);
         }
         if (!history) {
             self._docs.forEach(function (doc) {
@@ -735,7 +732,7 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
             return;
         }
         var query1 = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
-                                          {t: {$exists: false}}]};
+                                           {t: {$exists: false}}]};
         utils.addShardKeyDatas(pseudoModel, _doc, query1);
         var query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
@@ -758,11 +755,13 @@ TransactionSchema.methods.findOne = function(model, conditions, options,
                 return doc;
             }
             if (!remainRetry) {
-                throw new TransactionError(
-                    ERROR_TYPE.TRANSACTION_CONFLICT_2,
-                    {collection: _doc && ModelMap.getCollectionName(_doc),
-                     doc: _doc && _doc._id, query: query1, transaction: self}
-                );
+                var hint = {collection: _doc &&
+                                        ModelMap.getCollectionName(_doc),
+                            doc: _doc && _doc._id,
+                            query: query1,
+                            transaction: self};
+                throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
+                                           hint);
             }
             // if t is not NULL_OBJECTID, try to go end of transaction process
             try {
