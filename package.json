@@ -13,6 +13,7 @@
     "synchronize": "",
     "async": "",
     "underscore": "",
+    "songbird": "",
     "babel-preset-stage-3": "*"
   },
   "devDependencies": {
