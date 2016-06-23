@@ -1,3 +1,38 @@
+// ## Transaction
+// ### State
+// All transaction start within `pending` state.
+// It will delete after `commit` or `expire` states.
+//
+//         pending (create transaction document)
+//            |
+//         .----.
+//         v    v
+//      commit expire
+//         |    |
+//         `----'
+//            |
+//            v
+//          done (delete transaction document)
+//
+// ### Legacy
+// this project has some legacy codes. These codes need to care
+// mongo/mongoose's buggy actions
+//
+// #### findAndModify
+// Transaciton require `mongo native atomic` actions, so we only can use
+// `findAndModify` or `update` command.
+//
+// but `findAndModify` command will lock of all shard collections,
+// make `pseudo findAndModify` using combine two commands(`update`, `findOne`)
+//
+// #### update
+// Some `specific` mongodb's `update` command return buggy result.
+//
+// - data write finished, `update` return updated documents count is 0.
+// - mongoose use this count, it raise error
+//
+// So, we decide if update result count is 0, send `findOne` command,
+// recheck document change.
 "use strict";
 var async = require('async');
 var sync = require('synchronize');
@@ -32,8 +67,6 @@ TransactionSchema.attachShardKey = function(doc) {
     TransactionSchema.options.shardKey.initialize(doc);
 };
 
-// ## Transaction
-//
 // ### Transaction.new
 // Create new transaction
 //
