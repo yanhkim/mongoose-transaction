@@ -4,8 +4,8 @@ var mongoose = require('mongoose');
 var async = require('async');
 var sync = require('synchronize');
 global.TRANSACTION_DEBUG_LOG = false;
-var transaction = require('../index');
-var DEFINE = require('../define');
+var transaction = require('../src/index');
+var DEFINE = require('../src/define');
 var ERRORS = DEFINE.ERROR_TYPE;
 
 var connection;

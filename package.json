@@ -12,14 +12,18 @@
   "dependencies": {
     "synchronize": "",
     "async": "",
-    "underscore": ""
+    "underscore": "",
+    "babel-preset-stage-3": "*"
   },
   "devDependencies": {
+    "babel-cli": "^6.0.0",
     "should": "",
     "mocha": "",
     "mongoose": "3.8.25"
   },
+  "main": "src/index.js",
   "scripts": {
-      "test": "mocha test -t 10000"
+      "build": "babel src -d src/controller",
+      "test": "mocha --compilers js:babel-core/register -t 10000"
   }
 }
