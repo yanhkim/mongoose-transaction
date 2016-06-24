@@ -1,11 +1,11 @@
-"use strict";
-var mongoose = require('mongoose');
+'use strict';
+const mongoose = require('mongoose');
 
-var MONGOOSE_VERSIONS = mongoose.version.split('.').map(function(x) {
-    return parseInt(x, 10 );
+const MONGOOSE_VERSIONS = mongoose.version.split('.').map((x) => {
+    return parseInt(x, 10);
 });
 
-var ERROR_TYPE = {
+const ERROR_TYPE = {
     BROKEN_DATA: 40,
     SOMETHING_WRONG: 41, // data not found or mongo response error
     TRANSACTION_CONFLICT_1: 42, // sequence save
@@ -23,4 +23,4 @@ module.exports = {
     ERROR_TYPE: ERROR_TYPE,
     NULL_OBJECTID: mongoose.Types.ObjectId("000000000000000000000000"),
 };
-// vim: et ts=5 sw=4 sts=4 colorcolumn=80
+// vim: et ts=4 sw=4 sts=4 colorcolumn=80
