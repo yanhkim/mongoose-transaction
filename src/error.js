@@ -1,8 +1,8 @@
-"use strict";
+'use strict';
 var util = require('util');
 
 var TransactionError = module.exports.TransactionError =
-        function TransactionError(type, hint) {
+function TransactionError(type, hint) {
     Error.call(this);
     Error.captureStackTrace(this, TransactionError);
     this.name = 'TransactionError';
@@ -12,4 +12,4 @@ var TransactionError = module.exports.TransactionError =
 util.inherits(TransactionError, Error);
 
 module.exports = TransactionError;
-// vim: et ts=5 sw=4 sts=4 colorcolumn=80
+// vim: et ts=4 sw=4 sts=4 colorcolumn=80
