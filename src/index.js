@@ -5,9 +5,7 @@
 //
 'use strict';
 const Promise = require('songbird');
-const sync = require('synchronize');
 const mongoose = require('mongoose');
-const async = require('async');
 const _ = require('underscore');
 const utils = require('./utils');
 const atomic = require('./atomic');
@@ -52,14 +50,6 @@ let getShardKeyArray = function(shardKey) {
     return Array.isArray(shardKey) ? shardKey : [];
 };
 
-const validate = (doc, callback) => {
-    doc.validate(callback);
-};
-
-const nextObject = (docs, callback) => {
-    docs.nextObject(callback);
-};
-
 // ### TransactedModel._saveWithoutTransaction
 // This method replace original `Model.save`
 //
@@ -81,40 +71,33 @@ const nextObject = (docs, callback) => {
 // * 42 - conflict another transaction; document locked
 // * 43 - conflict another transaction; transaction still alive
 const saveWithoutTransaction = async function(next, callback)  {
-    if (this.isNew) {
+    let self = this;
+    if (self.isNew) {
         return next();
     }
-    try {
-        await validate.promise(this);
-    } catch (e) {
-        if (callback) {
-            return callback(e);
+
+    let promise = (async() => {
+        await helper.validate(self);
+        let delta = self.$__delta();
+        if (!delta) {
+            return;
         }
-        throw e;
-    }
-    let delta = this.$__delta();
-    if (!delta) {
-        callback && callback();
-        return;
-    }
-    delta = delta[1];
-    DEBUG('DELTA', this.collection.name, ':', JSON.stringify(delta));
-    let pseudoModel = ModelMap.getPseudoModel(this);
-    this.$__reset();
-    // manually save document only can `t` value is unset or NULL_OBJECTID
-    let query = {_id: this._id, $or: [{t: DEFINE.NULL_OBJECTID},
-                                      {t: {$exists: false}}]};
-    utils.addShardKeyDatas(pseudoModel, this, query);
-    // TODO: need delta cross check
-    let checkFields = {t: 1};
-    let data;
-    try {
+        delta = delta[1];
+        DEBUG('DELTA', self.collection.name, ':', JSON.stringify(delta));
+        let pseudoModel = ModelMap.getPseudoModel(self);
+        self.$__reset();
+        // manually save document only can `t` value is unset or NULL_OBJECTID
+        let query = {_id: self._id, $or: [{t: DEFINE.NULL_OBJECTID},
+                                          {t: {$exists: false}}]};
+        utils.addShardKeyDatas(pseudoModel, self, query);
+        // TODO: need delta cross check
+        let checkFields = {t: 1};
         let data = await atomic.findAndModify(pseudoModel.connection,
-                                              this.collection, query, delta,
+                                              self.collection, query, delta,
                                               checkFields);
 
-        let hint = {collection: ModelMap.getCollectionName(this),
-                    doc: this._id, query: query};
+        let hint = {collection: ModelMap.getCollectionName(self),
+                    doc: self._id, query: query};
         if (!data) {
             throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_1,
                                        hint);
@@ -123,14 +106,13 @@ const saveWithoutTransaction = async function(next, callback)  {
             throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
                                        hint);
         }
-    } catch (e) {
-        if (callback) {
-            return callback(e);
-        }
-        throw e;
+        self.emit('transactedSave');
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
     }
-    this.emit('transactedSave');
-    callback && callback();
+    return promise;
 };
 
 module.exports.plugin = (schema) => {
@@ -187,73 +169,72 @@ module.exports.addCollectionPseudoModelPair =
         ModelMap.addCollectionPseudoModelPair;
 
 const filterTransactedDocs = async (docs, callback) => {
-    callback = callback || function() {};
-    if (!docs) {
-        return callback(new Error('invalid documents'));
-    }
-    let transactionIdDocsMap = {};
-    let transactionIds = [];
-    let result = {ids: transactionIds,
-                  map: transactionIdDocsMap};
-    if (docs.nextObject) {
-        let doc = true;
-        while (doc) {
-            try {
-                doc = await nextObject.promise(docs);
-            } catch (e) {
-                if (callback) {
-                    return callback(e);
+    let promise = (async() => {
+        if (!docs) {
+            throw new Error('invalid documents');
+        }
+        let transactionIdDocsMap = {};
+        let transactionIds = [];
+        let result = {ids: transactionIds,
+                      map: transactionIdDocsMap};
+        if (docs.nextObject) {
+            let doc = true;
+            while (doc) {
+                doc = await helper.nextObject(docs);
+                if (!doc) {
+                    break;
                 }
-                throw e;
-            }
-            if (!doc) {
-                break;
-            }
-            if (!doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
-                continue;
-            }
-            transactionIdDocsMap[doc.t] =
-                    transactionIdDocsMap[doc.t] || [];
-            transactionIdDocsMap[doc.t].push(doc);
-            if (!_.contains(transactionIds, doc.t)) {
-                transactionIds.push(doc.t);
+                if (!doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
+                    continue;
+                }
+                transactionIdDocsMap[doc.t] =
+                        transactionIdDocsMap[doc.t] || [];
+                transactionIdDocsMap[doc.t].push(doc);
+                if (!_.contains(transactionIds, doc.t)) {
+                    transactionIds.push(doc.t);
+                }
             }
         }
+        if (docs.forEach) {
+            docs.forEach(function(doc) {
+                if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
+                    return;
+                }
+                transactionIdDocsMap[doc.t] =
+                    transactionIdDocsMap[doc.t] || [];
+                transactionIdDocsMap[doc.t].push(doc);
+                if (_.contains(transactionIds, doc.t)) {
+                    return;
+                }
+                transactionIds.push(doc.t);
+            });
+        }
+        return result;
+    })();
+
+    if (callback) {
+        return promise.then((ret) => callback(null, ret)).catch(callback);
     }
-    if (docs.forEach) {
-        docs.forEach(function(doc) {
-            if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
-                return;
-            }
-            transactionIdDocsMap[doc.t] = transactionIdDocsMap[doc.t] || [];
-            transactionIdDocsMap[doc.t].push(doc);
-            if (_.contains(transactionIds, doc.t)) {
-                return;
-            }
-            transactionIds.push(doc.t);
-        });
-    }
-    callback && callback(null, result);
-    return result;
+    return promise;
 };
 
 const recheckTransactions = async (model, transactedDocs, callback) => {
     let transactionIds = transactedDocs.ids;
     let transactionIdDocsMap = transactedDocs.map;
 
-    for(let i = 0; i < transactionIds.length; i += 1) {
-        let transactionId = transactionIds[i];
-        let query = {
-            _id: transactionId,
-        };
-        TransactionSchema.attachShardKey(query);
-        let transactionModel = ModelMap.getPseudoModel(
-            TransactionSchema.RAW_TRANSACTION_COLLECTION
-        );
-        let Model = transactionModel
-                .connection
-                .models[TransactionSchema.TRANSACTION_COLLECTION];
-        try {
+    let promise = (async() => {
+        for(let i = 0; i < transactionIds.length; i += 1) {
+            let transactionId = transactionIds[i];
+            let query = {
+                _id: transactionId,
+            };
+            TransactionSchema.attachShardKey(query);
+            let transactionModel = ModelMap.getPseudoModel(
+                TransactionSchema.RAW_TRANSACTION_COLLECTION
+            );
+            let Model = transactionModel
+                    .connection
+                    .models[TransactionSchema.TRANSACTION_COLLECTION];
             let tr = await helper.findOne(Model, query);
             if (tr && tr.state != 'done') {
                 await helper.promisify(tr, '_postProcess')();
@@ -261,7 +242,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
             }
 
             await Promise.each(transactionIdDocsMap[transactionId],
-                         async function(doc) {
+                               async function(doc) {
                 let pseudoModel = ModelMap.getPseudoModel(model);
                 let query = {_id: doc._id, t: doc.t};
                 utils.addShardKeyDatas(pseudoModel, doc, query);
@@ -274,14 +255,13 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
                                          model.collection.name,
                                          query, updateQuery);
             });
-        } catch(e) {
-            if (callback) {
-                return callback(e);
-            }
-            throw e;
         }
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
     }
-    callback && callback();
+    return promise;
 };
 
 // ### TransactedModel.find...
@@ -307,7 +287,6 @@ const find = (proto, ignoreCallback) => {
     return async function() {
         let args = Array.prototype.slice.call(arguments);
         let callback;
-
         if (!ignoreCallback) {
             callback = args[args.length - 1];
             if (!callback || typeof(callback) != 'function') {
@@ -318,54 +297,42 @@ const find = (proto, ignoreCallback) => {
             }
             args.pop();
         }
-        if (args.length > 1) {
-            let pseudoModel;
-            try {
-                pseudoModel = ModelMap.getPseudoModel(proto.model);
-            } catch(e) {
-                if (callback) {
-                    return callback(e);
-                }
-                throw e;
+        let promise = (async() => {
+            if (args.length > 1) {
+                let pseudoModel = ModelMap.getPseudoModel(proto.model);
+                let _defaultFields =
+                        ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
+                args[1] = utils.setDefaultFields(args[1], _defaultFields);
             }
-            let _defaultFields =
-                    ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
-            args[1] = utils.setDefaultFields(args[1], _defaultFields);
-        }
 
-        let RETRY_LIMIT = 10;
-        let retry = RETRY_LIMIT;
-        for (let i = 0; i < RETRY_LIMIT; i += 1) {
-            let docs = await orig(...args);
-            if (!proto.isMultiple) {
-                docs = [docs];
-            }
-            let transactedDocs = await filterTransactedDocs(docs);
-            if (!transactedDocs.ids.length) {
-                // FIXME need return
-                docs = proto.isMultiple ? docs : docs[0];
-                if (docs && docs.rewind) {
-                    docs.rewind();
+            let RETRY_LIMIT = 10;
+            let retry = RETRY_LIMIT;
+
+            for (let i = 0; i < RETRY_LIMIT; i += 1) {
+                let docs = await orig(...args);
+                if (!proto.isMultiple) {
+                    docs = [docs];
                 }
-                callback && callback(null, docs);
-                return docs;
-            }
-            try {
+                let transactedDocs = await filterTransactedDocs(docs);
+                if (!transactedDocs.ids.length) {
+                    // FIXME need return
+                    docs = proto.isMultiple ? docs : docs[0];
+                    if (docs && docs.rewind) {
+                        docs.rewind();
+                    }
+                    return docs;
+                }
                 await recheckTransactions(proto.model, transactedDocs);
-            } catch(e) {
-                if (callback) {
-                    callback(e);
-                }
-                throw e;
             }
-        }
-        let hint = {collection: ModelMap.getCollectionName(proto.model),
-                    query: args.length > 1 && args[0] || {}};
-        let err = new TransactionError(ERROR_TYPE.INFINITE_LOOP, hint);
+            let hint = {collection: ModelMap.getCollectionName(proto.model),
+                        query: args.length > 1 && args[0] || {}};
+            throw new TransactionError(ERROR_TYPE.INFINITE_LOOP, hint);
+        })();
+
         if (callback) {
-            return callback(e);
+            return promise.then((ret) => callback(null, ret)).catch(callback);
         }
-        throw e;
+        return promise;
     };
 };
 
@@ -413,35 +380,34 @@ const findWaitUnlock = function(proto) {
             throw new Error('TRANSACTION_FIND_NOT_SUPPORT_QUERY_CHAIN');
         }
         args.pop();
-        if (args.length > 1) {
-            let pseudoModel;
-            try {
-                pseudoModel = ModelMap.getPseudoModel(proto.model);
-            } catch(e) {
-                return callback(e);
-            }
-            let _defaultFields =
-                    ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
-            args[1] = utils.setDefaultFields(args[1], _defaultFields);
-        }
 
-        let RETRY_LIMIT = 5;
-        let lastError;
-        for (let i = 0; i < RETRY_LIMIT; i += 1) {
-            let docs;
-            try {
-                let docs = await _find(...args);
-                callback && callback(null, docs);
-                return docs;
-            } catch(e) {
-                lastError = e;
+        let promise = (async() => {
+            if (args.length > 1) {
+                let pseudoModel = ModelMap.getPseudoModel(proto.model);
+                let _defaultFields =
+                        ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
+                args[1] = utils.setDefaultFields(args[1], _defaultFields);
             }
-            await utils.sleep(_.sample([37, 59, 139]));
-        }
+
+            let RETRY_LIMIT = 5;
+            let lastError;
+            for (let i = 0; i < RETRY_LIMIT; i += 1) {
+                let docs;
+                try {
+                    let docs = await _find(...args);
+                    return docs;
+                } catch(e) {
+                    lastError = e;
+                }
+                await utils.sleep(_.sample([37, 59, 139]));
+            }
+            throw lastError;
+        })();
+
         if (callback) {
-            return callback(lastError);
+            return promise.then((ret) => callback(null, ret)).catch(callback);
         }
-        throw lastError;
+        return promise;
     };
 };
 
