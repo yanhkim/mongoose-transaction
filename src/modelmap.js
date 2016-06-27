@@ -1,11 +1,11 @@
-"use strict";
-var TransactionError = require('./error');
-var DEFINE = require('./define');
-var ERROR_TYPE = DEFINE.ERROR_TYPE;
+'use strict';
+const TransactionError = require('./error');
+const DEFINE = require('./define');
+const ERROR_TYPE = DEFINE.ERROR_TYPE;
 
-var CollectionPseudoModelMap = {};
+const CollectionPseudoModelMap = {};
 
-var getCollectionName = function(model) {
+const getCollectionName = function(model) {
     if (model.collection && model.collection.name) {
         return model.collection.name;
     } else {
@@ -13,7 +13,7 @@ var getCollectionName = function(model) {
     }
 };
 
-var getPseudoModel = function(model) {
+const getPseudoModel = function(model) {
     if (!model) {
         throw new TransactionError(ERROR_TYPE.INVALID_COLLECTION);
     }
@@ -26,15 +26,15 @@ var getPseudoModel = function(model) {
     return pseudoModel;
 };
 
-var addCollectionPseudoModelPair = function(collectionName, connection,
-                                            schema) {
-    var shardKey;
+const addCollectionPseudoModelPair = function(collectionName, connection,
+                                              schema) {
+    let shardKey;
     if (schema.options && schema.options.shardKey) {
         shardKey = Object.keys(schema.options.shardKey);
     }
     CollectionPseudoModelMap[collectionName] = {
         connection: connection,
-        shardKey: shardKey
+        shardKey: shardKey,
     };
 };
 
