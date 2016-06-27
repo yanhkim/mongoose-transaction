@@ -4,25 +4,8 @@ require('songbird');
 const utils = require('./utils');
 const TransactionError = require('./error');
 const DEFINE = require('./define');
+const helper = require('./helper');
 const ERROR_TYPE = DEFINE.ERROR_TYPE;
-
-// old version mongo-native functions will stuck with async/await process
-const update = (collection, query, updateData, writeOptions, callback) => {
-    collection.update(query, updateData, writeOptions, callback);
-};
-
-const findOne = (collection, query, field, callback) => {
-    collection.findOne(query, field, callback);
-}
-
-const findAndModify = (collection, query, sort, updateData, options,
-                       callback) => {
-    collection.findAndModify(query, sort, updateData, options, callback);
-}
-
-const executeDbCommand = (db, command, callback) => {
-    db.executeDbCommand(command, callback);
-}
 
 // ### pseudoFindAndModify
 // Emulate `findAndModify` of mongo native query using `update` and `find`
@@ -54,8 +37,8 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
     let numberUpdated;
     try {
         collection = await db.collection(collectionName);
-        numberUpdated = await update.promise(collection, query, updateData,
-                                             writeOptions);
+        numberUpdated = await helper.update(collection, query, updateData,
+                                            writeOptions);
     } catch (e) {
         if (callback) {
             return callback(e);
@@ -112,9 +95,9 @@ const acquireTransactionLock = async(db, collectionName, query, updateData,
     }
     // if findOne return wrong result,
     // `t` value changed to the another transaction
-    let updatedDoc = await findOne.promise(collection, modQuery,
-                                           {_id: 1, t: 1});
-    let t1 = String(update.t || ((update.$set || {}).t));
+    let updatedDoc = await helper.findOne(collection, modQuery,
+                                          {_id: 1, t: 1});
+    let t1 = String(updateData.t || ((updateData.$set || {}).t));
     let t2 = String(updatedDoc && updatedDoc.t);
     if (t1 === t2) {
         callback && callback();
@@ -164,7 +147,7 @@ const releaseTransactionLock = async(db, collectionName, query, updateData,
     }
     // if findAndModify return wrong result,
     // it only can wrong query case.
-    let doc = await findOne.promise(collection, query, {_id: 1, t: 1});
+    let doc = await helper.findOne(collection, query, {_id: 1, t: 1});
     if (!doc) {
         callback && callback();
         return;
@@ -180,24 +163,23 @@ const releaseTransactionLock = async(db, collectionName, query, updateData,
 
 const findAndModifyMongoNativeOlder = async(connection, collection, query,
                                             updateData, fields) => {
-    let data = await executeDbCommand(connection.db,
-                                      {findAndModify: collection.name,
-                                       query: query,
-                                       update: updateData,
-                                       fields: fields,
-                                       new: true});
+    let data = await helper
+            .executeDbCommand(connection.db,
+                              {findAndModify: collection.name, query: query,
+                               update: updateData, fields: fields, new: true});
     if (!data || !data.documents || !data.documents[0]) {
         throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
                                    {collection: collection.name,
-                                    query: query, update: update});
+                                    query: query, update: updateData});
     }
     return data.documents[0].value;
 };
 
 const findAndModifyMongoNativeNewer = async(collection, query, updateData,
                                             fields) => {
-    let data = await findAndModify.promise(collection, query, [], updateData,
-                                           {fields: fields, new: true});
+    let data = await helper
+            .findAndModify(collection, query, [], updateData,
+                           {fields: fields, new: true});
     // above to 3.7.x less than 4.x
     if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
         return data;
@@ -206,7 +188,7 @@ const findAndModifyMongoNativeNewer = async(collection, query, updateData,
     if (!data) {
         throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
                                    {collection: collection.name,
-                                    query: query, update: update});
+                                    query: query, update: updateData});
     }
     return data.value;
 };
