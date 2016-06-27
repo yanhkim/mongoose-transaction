@@ -40,7 +40,9 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
         return [numberUpdated, collection];
     })();
     if (callback) {
-        promise.then(ret => callback(null, ret[0], ret[1])).catch(callback);
+        return promise
+            .then(ret => callback(null, ret[0], ret[1]))
+            .catch(callback);
     }
     return promise;
 };
