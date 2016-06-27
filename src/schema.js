@@ -601,7 +601,7 @@ TransactionSchema.methods._postProcess = function(callback) {
         case 'expire':
             return this.expire(callback);
         default:
-            return callback();
+            return callback(new TransactionError(ERROR_TYPE.SOMETHING_WRONG));
     }
 };
 
