@@ -33,20 +33,16 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
         // journal: false, // write waits for journal sync
     };
 
-    let collection;
-    let numberUpdated;
-    try {
-        collection = await db.collection(collectionName);
-        numberUpdated = await helper.update(collection, query, updateData,
-                                            writeOptions);
-    } catch (e) {
-        if (callback) {
-            return callback(e);
-        }
-        throw e;
+    let promise = (async() => {
+        let collection = await db.collection(collectionName);
+        let numberUpdated = await helper.update(collection, query, updateData,
+                                                writeOptions);
+        return [numberUpdated, collection];
+    })();
+    if (callback) {
+        promise.then(ret => callback(null, ret[0], ret[1])).catch(callback);
     }
-    callback && callback(null, numberUpdated, collection);
-    return [numberUpdated, collection]
+    return promise;
 };
 
 // ### acquireTransactionLock
@@ -69,49 +65,43 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
 // * 42 - conflict another transaction; document locked
 const acquireTransactionLock = async(db, collectionName, query, updateData,
                                      callback) => {
-    let numberUpdated, collection;
-    try {
-        [numberUpdated, collection] =
-            await pseudoFindAndModify(db, collectionName, query, updateData);
-    } catch (e) {
-        if (callback) {
-            return callback(e);
+    let promise = (async() => {
+        let [numberUpdated, collection] =
+                await pseudoFindAndModify(db, collectionName, query,
+                                          updateData);
+        if (numberUpdated === 1) {
+            return;
         }
-        throw e;
-    }
-    if (numberUpdated === 1) {
-        callback && callback();
-        return;
-    }
-    let modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
-    // delete modQuery.t;
-    if (modQuery.$or) {
-        modQuery.$or = modQuery.$or.filter((cond) => {
-            return !cond.t;
-        });
-        if (modQuery.$or.length === 0) {
-            delete modQuery.$or;
+        let modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
+        // delete modQuery.t;
+        if (modQuery.$or) {
+            modQuery.$or = modQuery.$or.filter((cond) => {
+                return !cond.t;
+            });
+            if (modQuery.$or.length === 0) {
+                delete modQuery.$or;
+            }
         }
-    }
-    // if findOne return wrong result,
-    // `t` value changed to the another transaction
-    let updatedDoc = await helper.findOne(collection, modQuery,
-                                          {_id: 1, t: 1});
-    let t1 = String(updateData.t || ((updateData.$set || {}).t));
-    let t2 = String(updatedDoc && updatedDoc.t);
-    if (t1 === t2) {
-        callback && callback();
-        return;
-    }
-    let hint = {collection: collectionName, doc: query._id, query: query};
-    let err = new TransactionError((updatedDoc
-                                        ? ERROR_TYPE.TRANSACTION_CONFLICT_1
-                                        : ERROR_TYPE.SOMETHING_WRONG),
+        // if findOne return wrong result,
+        // `t` value changed to the another transaction
+        let updatedDoc = await helper.findOne(collection, modQuery,
+                                              {_id: 1, t: 1});
+        let t1 = String(updateData.t || ((updateData.$set || {}).t));
+        let t2 = String(updatedDoc && updatedDoc.t);
+        if (t1 === t2) {
+            return;
+        }
+        let hint = {collection: collectionName, doc: query._id, query: query};
+        throw new TransactionError((updatedDoc
+                                    ? ERROR_TYPE.TRANSACTION_CONFLICT_1
+                                    : ERROR_TYPE.SOMETHING_WRONG),
                                    hint);
+    })();
+
     if (callback) {
-        return callback(err);
+        return promise.then(callback).catch(callback);
     }
-    throw err;
+    return promise;
 };
 
 // ### releaseTransactionLock
@@ -131,34 +121,28 @@ const acquireTransactionLock = async(db, collectionName, query, updateData,
 // * err
 const releaseTransactionLock = async(db, collectionName, query, updateData,
                                      callback) => {
-    let numberUpdated, collection;
-    try {
-        [numberUpdated, collection] =
-            await pseudoFindAndModify(db, collectionName, query, updateData);
-    } catch (e) {
-        if (callback) {
-            return callback(e);
+    let promise = (async() => {
+        let [numberUpdated, collection] =
+                await pseudoFindAndModify(db, collectionName, query,
+                                          updateData);
+        if (numberUpdated === 1) {
+            return;
         }
-        throw e;
-    }
-    if (numberUpdated === 1) {
-        callback && callback();
-        return;
-    }
-    // if findAndModify return wrong result,
-    // it only can wrong query case.
-    let doc = await helper.findOne(collection, query, {_id: 1, t: 1});
-    if (!doc) {
-        callback && callback();
-        return;
-    }
-    // if function use on the transaction base, should'nt find document.
-    // TODO: need cross check update field.
-    let err = new Error('Transaction.commit> no matching document for commit');
+        // if findAndModify return wrong result,
+        // it only can wrong query case.
+        let doc = await helper.findOne(collection, query, {_id: 1, t: 1});
+        if (!doc) {
+            return;
+        }
+        // if function use on the transaction base, should'nt find document.
+        // TODO: need cross check update field.
+        throw new Error('Transaction.commit> no matching document for commit');
+    })();
+
     if (callback) {
-        return callback(err);
+        return promise.then(callback).catch(callback);
     }
-    throw err;
+    return promise;
 };
 
 const findAndModifyMongoNativeOlder = async(connection, collection, query,
@@ -208,27 +192,24 @@ const findAndModifyMongoNativeNewer = async(collection, query, updateData,
 // * doc - :Object:
 const findAndModifyMongoNative = async(connection, collection, query,
                                        updateData, fields, callback) => {
-    let data;
-    try {
+    let promise = (async() => {
         // below 3.6.x
         if (DEFINE.MONGOOSE_VERSIONS[0] < 3 ||
                 (DEFINE.MONGOOSE_VERSIONS[0] === 3 &&
                  DEFINE.MONGOOSE_VERSIONS[1] <= 6)) {
-            data = await findAndModifyMongoNativeOlder(connection, collection,
+            return await findAndModifyMongoNativeOlder(connection, collection,
                                                        query, updateData,
                                                        fields);
         } else {
-            data = await findAndModifyMongoNativeNewer(collection, query,
+            return await findAndModifyMongoNativeNewer(collection, query,
                                                        updateData, fields);
         }
-    } catch (e) {
-        if (callback) {
-            return callback(e);
-        }
-        throw e;
+    })();
+
+    if (callback) {
+        return promise.then(ret => callback(null, ret)).catch(callback);
     }
-    callback && callback(null, data);
-    return data;
+    return promise;
 };
 
 module.exports = {
