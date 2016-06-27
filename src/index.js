@@ -3,28 +3,29 @@
 // `mongoose-transaction` provide transaction feature under multiple mongodb
 // connections/documents.
 //
-"use strict";
-var sync = require('synchronize');
-var mongoose = require('mongoose');
-var async = require('async');
-var _ = require('underscore');
-var utils = require('./utils');
-var atomic = require('./atomic');
-var TransactionError = require('./error');
-var DEFINE = require('./define');
-var TransactionSchema = require('./schema');
-var ModelMap = require('./modelmap');
-var ERROR_TYPE = DEFINE.ERROR_TYPE;
+'use strict';
+const Promise = require('songbird');
+const sync = require('synchronize');
+const mongoose = require('mongoose');
+const async = require('async');
+const _ = require('underscore');
+const utils = require('./utils');
+const atomic = require('./atomic');
+const TransactionError = require('./error');
+const DEFINE = require('./define');
+const TransactionSchema = require('./schema');
+const ModelMap = require('./modelmap');
+const helper = require('./helper');
+const ERROR_TYPE = DEFINE.ERROR_TYPE;
 
 module.exports = {
     TRANSACTION_ERRORS: ERROR_TYPE,
     TransactionError: TransactionError,
 };
 
-var DEBUG = utils.DEBUG;
+const DEBUG = utils.DEBUG;
 
-
-//var VERSION_TRANSACTION = 4;
+// const VERSION_TRANSACTION = 4;
 module.exports.TRANSACTION_COLLECTION =
     TransactionSchema.TRANSACTION_COLLECTION;
 
@@ -39,7 +40,7 @@ module.exports.TransactionSchema = TransactionSchema;
 module.exports.bindShardKeyRule = function(schema, rule) {
     if (!rule || !rule.fields || !rule.rule || !rule.initialize ||
             !Object.keys(rule.rule).length ||
-            typeof(rule.initialize) !== 'function') {
+            typeof rule.initialize !== 'function') {
         throw new TransactionError(ERROR_TYPE.BROKEN_DATA);
     }
     schema.add(rule.fields);
@@ -47,15 +48,16 @@ module.exports.bindShardKeyRule = function(schema, rule) {
     schema.options.shardKey.initialize = rule.initialize;
 };
 
-var addShardKeyDatas = function(pseudoModel, src, dest) {
-    if (!pseudoModel || !pseudoModel.shardKey ||
-            !Array.isArray(pseudoModel.shardKey)) {
-        return;
-    }
-    pseudoModel.shardKey.forEach(function(sk) { dest[sk] = src[sk]; });
-};
-var getShardKeyArray = function(shardKey) {
+let getShardKeyArray = function(shardKey) {
     return Array.isArray(shardKey) ? shardKey : [];
+};
+
+const validate = (doc, callback) => {
+    doc.validate(callback);
+};
+
+const nextObject = (docs, callback) => {
+    docs.nextObject(callback);
 };
 
 // ### TransactedModel._saveWithoutTransaction
@@ -78,61 +80,70 @@ var getShardKeyArray = function(shardKey) {
 // * 41 - cannot found update target document
 // * 42 - conflict another transaction; document locked
 // * 43 - conflict another transaction; transaction still alive
-var saveWithoutTransaction = function(next, callback) {
-    var self = this;
-    callback = callback || function() {};
-
-    if (self.isNew) {
+const saveWithoutTransaction = async function(next, callback)  {
+    if (this.isNew) {
         return next();
     }
-    sync.fiber(function() {
-        self.validate(sync.defer()); sync.await();
-        var delta = self.$__delta();
-        if (!delta) {
-            return;
+    try {
+        await validate.promise(this);
+    } catch (e) {
+        if (callback) {
+            return callback(e);
         }
-        delta = delta[1];
-        DEBUG('DELTA', self.collection.name, ':', JSON.stringify(delta));
-        var pseudoModel = ModelMap.getPseudoModel(self);
-        self.$__reset();
-        // manually save document only can `t` value is unset or NULL_OBJECTID
-        var query = {_id: self._id, $or:[{t: DEFINE.NULL_OBJECTID},
-                                         {t: {$exists: false}}]};
-        addShardKeyDatas(pseudoModel, self, query);
-        // TODO: need delta cross check
-        var checkFields = {t: 1};
-        atomic.findAndModify(pseudoModel.connection, self.collection,
-                             query, delta, checkFields, sync.defer());
-        var data = sync.await();
+        throw e;
+    }
+    let delta = this.$__delta();
+    if (!delta) {
+        callback && callback();
+        return;
+    }
+    delta = delta[1];
+    DEBUG('DELTA', this.collection.name, ':', JSON.stringify(delta));
+    let pseudoModel = ModelMap.getPseudoModel(this);
+    this.$__reset();
+    // manually save document only can `t` value is unset or NULL_OBJECTID
+    let query = {_id: this._id, $or: [{t: DEFINE.NULL_OBJECTID},
+                                      {t: {$exists: false}}]};
+    utils.addShardKeyDatas(pseudoModel, this, query);
+    // TODO: need delta cross check
+    let checkFields = {t: 1};
+    let data;
+    try {
+        let data = await atomic.findAndModify(pseudoModel.connection,
+                                              this.collection, query, delta,
+                                              checkFields);
+
+        let hint = {collection: ModelMap.getCollectionName(this),
+                    doc: this._id, query: query};
         if (!data) {
-            throw new TransactionError(
-                ERROR_TYPE.TRANSACTION_CONFLICT_1,
-                {collection: ModelMap.getCollectionName(self), doc: self._id,
-                 query: query}
-            );
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_1,
+                                       hint);
         }
         if (data.t && !DEFINE.NULL_OBJECTID.equals(data.t)) {
-            throw new TransactionError(
-                ERROR_TYPE.TRANSACTION_CONFLICT_2,
-                {collection: ModelMap.getCollectionName(self), doc: self._id,
-                 query: query}
-            );
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
+                                       hint);
         }
-        self.emit('transactedSave');
-    }, callback);
+    } catch (e) {
+        if (callback) {
+            return callback(e);
+        }
+        throw e;
+    }
+    this.emit('transactedSave');
+    callback && callback();
 };
 
-module.exports.plugin = function(schema) {
+module.exports.plugin = (schema) => {
     schema.add({t: {type: mongoose.Schema.Types.ObjectId,
                     'default': DEFINE.NULL_OBJECTID}});
     schema.add({__new: Boolean});
 
     if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
         schema.post('init', function() {
-            var self = this;
+            let self = this;
             self._oldSave = self.save;
-            self.save = function(callback) {
-                self._saveWithoutTransaction(function(err) {
+            self.save = (callback) => {
+                self._saveWithoutTransaction((err) => {
                     if (err) {
                         return callback(err);
                     }
@@ -175,95 +186,102 @@ module.exports.plugin = function(schema) {
 module.exports.addCollectionPseudoModelPair =
         ModelMap.addCollectionPseudoModelPair;
 
-var filterTransactedDocs = function(docs, callback) {
+const filterTransactedDocs = async (docs, callback) => {
     callback = callback || function() {};
     if (!docs) {
         return callback(new Error('invalid documents'));
     }
-    sync.fiber(function() {
-        var transactionIdDocsMap = {};
-        var transactionIds = [];
-        var result = {ids: transactionIds,
-                      map: transactionIdDocsMap};
-        if (docs.nextObject) {
-            var doc = true;
-            while (doc) {
-                docs.nextObject(sync.defer());
-                doc = sync.await();
-                if (!doc) {
-                    break;
+    let transactionIdDocsMap = {};
+    let transactionIds = [];
+    let result = {ids: transactionIds,
+                  map: transactionIdDocsMap};
+    if (docs.nextObject) {
+        let doc = true;
+        while (doc) {
+            try {
+                doc = await nextObject.promise(docs);
+            } catch (e) {
+                if (callback) {
+                    return callback(e);
                 }
-                if (!doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
-                    continue;
-                }
-                transactionIdDocsMap[doc.t] =
-                        transactionIdDocsMap[doc.t] || [];
-                transactionIdDocsMap[doc.t].push(doc);
-                if (!_.contains(transactionIds, doc.t)) {
-                    transactionIds.push(doc.t);
-                }
+                throw e;
+            }
+            if (!doc) {
+                break;
+            }
+            if (!doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
+                continue;
+            }
+            transactionIdDocsMap[doc.t] =
+                    transactionIdDocsMap[doc.t] || [];
+            transactionIdDocsMap[doc.t].push(doc);
+            if (!_.contains(transactionIds, doc.t)) {
+                transactionIds.push(doc.t);
             }
         }
-        if (docs.forEach) {
-            docs.forEach(function(doc) {
-                if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
-                    return;
-                }
-                transactionIdDocsMap[doc.t] =
-                    transactionIdDocsMap[doc.t] || [];
-                transactionIdDocsMap[doc.t].push(doc);
-                if (_.contains(transactionIds, doc.t)) {
-                    return;
-                }
-                transactionIds.push(doc.t);
-            });
-        }
-        return result;
-    }, callback);
-};
-
-var recheckTransactions = function(model, transactedDocs, callback) {
-    var transactionIds = transactedDocs.ids;
-    var transactionIdDocsMap = transactedDocs.map;
-
-    sync.fiber(function() {
-        transactionIds.forEach(function(transactionId) {
-            var query = {
-                _id: transactionId,
-            };
-            TransactionSchema.attachShardKey(query);
-            var transactionModel = ModelMap.getPseudoModel(
-                TransactionSchema.RAW_TRANSACTION_COLLECTION
-            );
-            transactionModel.connection
-                            .models[TransactionSchema.TRANSACTION_COLLECTION]
-                            .findOne(query, sync.defer());
-            var tr = sync.await();
-            if (tr && tr.state != 'done') {
-                tr._postProcess(sync.defer()); sync.await();
+    }
+    if (docs.forEach) {
+        docs.forEach(function(doc) {
+            if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                 return;
             }
-            async.each(transactionIdDocsMap[transactionId],
-                       function(doc, next) {
-                var pseudoModel;
-                try {
-                    pseudoModel = ModelMap.getPseudoModel(model);
-                } catch(e) {
-                    return next(e);
-                }
-                var query = {_id: doc._id, t: doc.t};
-                addShardKeyDatas(pseudoModel, doc, query);
-                if (doc.__new) {
-                    return model.collection.remove(query,
-                                                   next);
-                }
-                var updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};
-                return atomic.releaseLock(pseudoModel.connection.db,
-                                          model.collection.name,
-                                          query, updateQuery, next);
-            }, sync.defer()); sync.await();
+            transactionIdDocsMap[doc.t] = transactionIdDocsMap[doc.t] || [];
+            transactionIdDocsMap[doc.t].push(doc);
+            if (_.contains(transactionIds, doc.t)) {
+                return;
+            }
+            transactionIds.push(doc.t);
         });
-    }, callback);
+    }
+    callback && callback(null, result);
+    return result;
+};
+
+const recheckTransactions = async (model, transactedDocs, callback) => {
+    let transactionIds = transactedDocs.ids;
+    let transactionIdDocsMap = transactedDocs.map;
+
+    for(let i = 0; i < transactionIds.length; i += 1) {
+        let transactionId = transactionIds[i];
+        let query = {
+            _id: transactionId,
+        };
+        TransactionSchema.attachShardKey(query);
+        let transactionModel = ModelMap.getPseudoModel(
+            TransactionSchema.RAW_TRANSACTION_COLLECTION
+        );
+        let Model = transactionModel
+                .connection
+                .models[TransactionSchema.TRANSACTION_COLLECTION];
+        try {
+            let tr = await helper.findOne(Model, query);
+            if (tr && tr.state != 'done') {
+                await helper.promisify(tr, '_postProcess')();
+                continue;
+            }
+
+            await Promise.each(transactionIdDocsMap[transactionId],
+                         async function(doc) {
+                let pseudoModel = ModelMap.getPseudoModel(model);
+                let query = {_id: doc._id, t: doc.t};
+                utils.addShardKeyDatas(pseudoModel, doc, query);
+                if (doc.__new) {
+                    await helper.remove(model.collection, query);
+                    return;
+                }
+                let updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};
+                await atomic.releaseLock(pseudoModel.connection.db,
+                                         model.collection.name,
+                                         query, updateQuery);
+            });
+        } catch(e) {
+            if (callback) {
+                return callback(e);
+            }
+            throw e;
+        }
+    }
+    callback && callback();
 };
 
 // ### TransactedModel.find...
@@ -284,59 +302,70 @@ var recheckTransactions = function(model, transactedDocs, callback) {
 // * 50 - unknown colllection
 // * 70 - Exceed retry limit
 // SeeAlso :Transaction._postProcess:
-var find = function(proto) {
-    return function() {
-        var args = Array.prototype.slice.call(arguments);
-        var callback = args[args.length - 1];
+const find = (proto, ignoreCallback) => {
+    let orig = helper.promisify(proto.target, proto.orig);
+    return async function() {
+        let args = Array.prototype.slice.call(arguments);
+        let callback;
 
-        if (!callback || typeof(callback) != 'function') {
-            // using special case;
-            //   `Model.find({}).sort({}).exec(function() {})`
-            // FIXME: support this case
-            throw new Error('TRANSACTION_FIND_NOT_SUPPORT_QUERY_CHAIN');
+        if (!ignoreCallback) {
+            callback = args[args.length - 1];
+            if (!callback || typeof(callback) != 'function') {
+                // using special case;
+                //   `Model.find({}).sort({}).exec(function() {})`
+                // FIXME: support this case
+                throw new Error('TRANSACTION_FIND_NOT_SUPPORT_QUERY_CHAIN');
+            }
+            args.pop();
         }
-        args.pop();
         if (args.length > 1) {
-            var pseudoModel;
+            let pseudoModel;
             try {
                 pseudoModel = ModelMap.getPseudoModel(proto.model);
             } catch(e) {
-                return callback(e);
+                if (callback) {
+                    return callback(e);
+                }
+                throw e;
             }
-            var _defaultFields =
+            let _defaultFields =
                     ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
             args[1] = utils.setDefaultFields(args[1], _defaultFields);
         }
 
-        sync.fiber(function() {
-            var RETRY_LIMIT = 10;
-            var retry = RETRY_LIMIT;
-            while (retry) {
-                retry -= 1;
-                proto.orig.apply(proto.target, args.concat(sync.defer()));
-                var docs = sync.await();
-                if (!proto.isMultiple) {
-                    docs = [docs];
-                }
-                filterTransactedDocs(docs, sync.defer());
-                var transactedDocs = sync.await();
-                if (!transactedDocs.ids.length) {
-                    // FIXME need return
-                    docs = proto.isMultiple ? docs : docs[0];
-                    if (docs && docs.rewind) {
-                        docs.rewind();
-                    }
-                    return docs;
-                }
-                recheckTransactions(proto.model, transactedDocs, sync.defer());
-                sync.await();
+        let RETRY_LIMIT = 10;
+        let retry = RETRY_LIMIT;
+        for (let i = 0; i < RETRY_LIMIT; i += 1) {
+            let docs = await orig(...args);
+            if (!proto.isMultiple) {
+                docs = [docs];
             }
-            throw new TransactionError(
-                ERROR_TYPE.INFINITE_LOOP,
-                {collection: ModelMap.getCollectionName(proto.model),
-                 query: args.length > 1 && args[0] || {}}
-            );
-        }, callback);
+            let transactedDocs = await filterTransactedDocs(docs);
+            if (!transactedDocs.ids.length) {
+                // FIXME need return
+                docs = proto.isMultiple ? docs : docs[0];
+                if (docs && docs.rewind) {
+                    docs.rewind();
+                }
+                callback && callback(null, docs);
+                return docs;
+            }
+            try {
+                await recheckTransactions(proto.model, transactedDocs);
+            } catch(e) {
+                if (callback) {
+                    callback(e);
+                }
+                throw e;
+            }
+        }
+        let hint = {collection: ModelMap.getCollectionName(proto.model),
+                    query: args.length > 1 && args[0] || {}};
+        let err = new TransactionError(ERROR_TYPE.INFINITE_LOOP, hint);
+        if (callback) {
+            return callback(e);
+        }
+        throw e;
     };
 };
 
@@ -351,7 +380,7 @@ var find = function(proto) {
 // #### Callback arguments
 // * err
 // * doc - :Document: or :Array:
-var findForce = function(proto) {
+const findForce = function(proto) {
     return function() {
         return proto.orig.apply(proto.target, arguments);
         // TODO delete save method
@@ -371,10 +400,11 @@ var findForce = function(proto) {
 //
 // #### Transaction errors
 // SeeAlso :TransactedModel.find...:
-var findWaitUnlock = function(proto) {
-    return function() {
-        var args = Array.prototype.slice.call(arguments);
-        var callback = args[args.length - 1];
+const findWaitUnlock = function(proto) {
+    let _find = find(proto, true);
+    return async function() {
+        let args = Array.prototype.slice.call(arguments);
+        let callback = args[args.length - 1];
 
         if (!callback || typeof(callback) != 'function') {
             // using special case;
@@ -384,55 +414,53 @@ var findWaitUnlock = function(proto) {
         }
         args.pop();
         if (args.length > 1) {
-            var pseudoModel;
+            let pseudoModel;
             try {
                 pseudoModel = ModelMap.getPseudoModel(proto.model);
             } catch(e) {
                 return callback(e);
             }
-            var _defaultFields =
+            let _defaultFields =
                     ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
             args[1] = utils.setDefaultFields(args[1], _defaultFields);
         }
 
-        sync.fiber(function() {
-            var remainRetry = 5;
-            while (true) {
-                remainRetry -= 1;
-                var docs;
-                try {
-                    find(proto).apply(proto.model,
-                                      args.concat(sync.defer()));
-                    docs = sync.await();
-                    return docs;
-                } catch(e) {
-                    if (!remainRetry) {
-                        throw e;
-                    }
-                }
-                setTimeout(sync.defer(), _.sample([37, 59, 139]));
-                sync.await();
+        let RETRY_LIMIT = 5;
+        let lastError;
+        for (let i = 0; i < RETRY_LIMIT; i += 1) {
+            let docs;
+            try {
+                let docs = await _find(...args);
+                callback && callback(null, docs);
+                return docs;
+            } catch(e) {
+                lastError = e;
             }
-        }, callback);
+            await utils.sleep(_.sample([37, 59, 139]));
+        }
+        if (callback) {
+            return callback(lastError);
+        }
+        throw lastError;
     };
 };
 
-module.exports.TransactedModel = function(connection, modelName, schema) {
+module.exports.TransactedModel = (connection, modelName, schema) => {
     schema.plugin(module.exports.plugin);
-    var model = connection.model(modelName, schema);
+    let model = connection.model(modelName, schema);
     ModelMap.addCollectionPseudoModelPair(model.collection.name, connection,
                                           schema);
 
-    var toJSON = model.prototype.toJSON;
+    let toJSON = model.prototype.toJSON;
     model.prototype.toJSON = function transactedModelToJSON(options) {
-        var res = toJSON.call(this, options);
+        let res = toJSON.call(this, options);
         if (res.t && DEFINE.NULL_OBJECTID.equals(res.t)) {
             delete res.t;
         }
         return res;
     };
 
-    var prototypes = [
+    let prototypes = [
         {
             target: model,
             name: 'find',
@@ -459,7 +487,7 @@ module.exports.TransactedModel = function(connection, modelName, schema) {
         },
     ];
     prototypes.forEach(function(proto) {
-        var methodName = proto.alternative || proto.name;
+        let methodName = proto.alternative || proto.name;
         proto.model = model;
         proto.orig = proto.target[proto.name];
         // FIXME
@@ -471,7 +499,7 @@ module.exports.TransactedModel = function(connection, modelName, schema) {
     // syntactic sugar
     ['', 'Force'].forEach(function (lock) {
         model['findById' + lock] = function () {
-            var args = Array.prototype.slice.call(arguments);
+            let args = Array.prototype.slice.call(arguments);
             args[0] = {_id: args[0]};
             return this['findOne' + lock].apply(this, args);
         };

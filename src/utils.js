@@ -1,4 +1,6 @@
 "use strict";
+require('songbird');
+
 var mongoose = require('mongoose');
 
 var wrapMongoOp = function wrapMongoOp(op) {
@@ -216,6 +218,10 @@ var removeShardKeySetData = function(shardKey, op) {
     });
 };
 
+const sleep = ((microsec, callback) => {
+    setTimeout(callback, microsec);
+}).promise;
+
 module.exports = {
     wrapMongoOp: wrapMongoOp,
     unwrapMongoOp: unwrapMongoOp,
@@ -225,5 +231,6 @@ module.exports = {
     DEBUG: DEBUG,
     addShardKeyDatas: addShardKeyDatas,
     removeShardKeySetData: removeShardKeySetData,
+    sleep: sleep,
 };
 // vim: et ts=5 sw=4 sts=4 colorcolumn=80
