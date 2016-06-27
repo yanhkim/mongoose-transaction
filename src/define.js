@@ -21,6 +21,6 @@ const ERROR_TYPE = {
 module.exports = {
     MONGOOSE_VERSIONS: MONGOOSE_VERSIONS,
     ERROR_TYPE: ERROR_TYPE,
-    NULL_OBJECTID: mongoose.Types.ObjectId("000000000000000000000000"),
+    NULL_OBJECTID: mongoose.Types.ObjectId('000000000000000000000000'),
 };
 // vim: et ts=4 sw=4 sts=4 colorcolumn=80
