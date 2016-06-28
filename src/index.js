@@ -237,7 +237,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
                     .models[TransactionSchema.TRANSACTION_COLLECTION];
             let tr = await helper.findOne(Model, query);
             if (tr && tr.state != 'done') {
-                await helper.promisify(tr, '_postProcess')();
+                await tr._postProcess();
                 continue;
             }
 

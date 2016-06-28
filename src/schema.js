@@ -446,7 +446,7 @@ TransactionSchema.methods._commit = async function(callback) {
         let errors = await self._makeHistory();
         if (errors.length) {
             console.error(errors);
-            await helper.promisify(self, self.expire)();
+            await self.expire();
             if (errors[0]) {
                 throw errors[0];
             }
@@ -454,7 +454,7 @@ TransactionSchema.methods._commit = async function(callback) {
                                        hint);
         }
         if (self.isExpired()) {
-            await helper.promisify(self, self.expire)();
+            await self.expire();
             throw new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED, hint);
         }
         self.state = 'commit';
@@ -466,7 +466,7 @@ TransactionSchema.methods._commit = async function(callback) {
         } catch(e) {
             // this case only can db error or already expired
             self.state = undefined;
-            await helper.promisify(self, self.expire)();
+            await self.expire();
             throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR, hint);
         }
         if (!history) {
@@ -619,42 +619,31 @@ TransactionSchema.methods.cancel = async function(reason, callback) {
 // ### Transaction._postProcess
 // If transaction process had problem, continue process
 //
-// #### Arguments
-// * callback - :Function:
-//
-// #### Callback arguments
-// * err
+// #### Return
+// :Promise:
 //
 // #### Transaction errors
 // * 43 - conflict another transaction; transaction still alive
-TransactionSchema.methods._postProcess = async function(callback) {
-    let self = this;
-    let promise = (async() => {
-        switch (self.state) {
-            case 'pending':
-                if (self.isExpired()) {
-                    await self.expire();
-                    return;
-                }
-                let hint = {collection: ModelMap.getCollectionName(self),
-                            transaction: self};
-                throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
-                                           hint);
-            case 'commit':
-                await self.commit();
+TransactionSchema.methods._postProcess = async function() {
+    switch (this.state) {
+        case 'pending':
+            if (this.isExpired()) {
+                await this.expire();
                 return;
-            case 'expire':
-                await self.expire();
-                return;
-            default:
-                throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG);
-        }
-    })();
-
-    if (callback) {
-        return promise.then(callback).catch(callback);
+            }
+            let hint = {collection: ModelMap.getCollectionName(this),
+                        transaction: this};
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
+                                       hint);
+        case 'commit':
+            await this.commit();
+            return;
+        case 'expire':
+            await this.expire();
+            return;
+        default:
+            throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG);
     }
-    return promise;
 };
 
 TransactionSchema.methods.convertQueryForAvoidConflict =
