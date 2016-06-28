@@ -1,10 +1,10 @@
-"use strict";
+'use strict';
 require('songbird');
 
-var mongoose = require('mongoose');
+const mongoose = require('mongoose');
 
-var wrapMongoOp = function wrapMongoOp(op) {
-    var key, val;
+const wrapMongoOp = function wrapMongoOp(op) {
+    let key, val;
     for (key in op) {
         if (op.hasOwnProperty(key)) {
             val = op[key];
@@ -14,7 +14,7 @@ var wrapMongoOp = function wrapMongoOp(op) {
                 op[key] = {$oid: val.toString()};
             } else if (op[key] instanceof Date) {
                 op[key] = {$date: +val};
-            } else if (Array.isArray(val) || typeof(val) === 'object') {
+            } else if (Array.isArray(val) || typeof val === 'object') {
                 wrapMongoOp(val);
             }
         }
@@ -22,8 +22,8 @@ var wrapMongoOp = function wrapMongoOp(op) {
     return op;
 };
 
-var unwrapMongoOp = function unwrapMongoOp(op) {
-    var key, val;
+const unwrapMongoOp = function unwrapMongoOp(op) {
+    let key, val;
     for (key in op) {
         if (op.hasOwnProperty(key)) {
             val = op[key];
@@ -31,7 +31,7 @@ var unwrapMongoOp = function unwrapMongoOp(op) {
                 unwrapMongoOp(val);
             } else if (val === null || val === undefined) {
                 continue;
-            } else if (typeof(val) === 'object') {
+            } else if (typeof val === 'object') {
                 if (val.hasOwnProperty('$oid')) {
                     op[key] = new mongoose.Types.ObjectId(val.$oid);
                 } else if (val.hasOwnProperty('$date')) {
@@ -45,8 +45,8 @@ var unwrapMongoOp = function unwrapMongoOp(op) {
     return op;
 };
 
-var _checkExcludeOnly = function(fields) {
-    var ret = fields.some(function(field) {
+const _checkExcludeOnly = function(fields) {
+    let ret = fields.some(function(field) {
         if (field.indexOf('-') === 0) {
             return;
         }
@@ -55,13 +55,13 @@ var _checkExcludeOnly = function(fields) {
     return !ret;
 };
 
-var _filterExcludedField = function(fields, blacklist) {
-    var excludedFields = JSON.parse(JSON.stringify(fields));
+let _filterExcludedField = function(fields, blacklist) {
+    let excludedFields = JSON.parse(JSON.stringify(fields));
 
-    var _excludedFields = [];
-    blacklist.forEach(function (field) {
-        var parentField;
-        var topField;
+    let _excludedFields = [];
+    blacklist.forEach(function(field) {
+        let parentField;
+        let topField;
         if (field.indexOf('.') < 0) {
             parentField = field;
             topField = field;
@@ -70,8 +70,8 @@ var _filterExcludedField = function(fields, blacklist) {
             topField = field.split('.')[0];
         }
 
-        var idx = [];
-        for (var i = 0; i < excludedFields.length; i += 1) {
+        let idx = [];
+        for (let i = 0; i < excludedFields.length; i += 1) {
             if (excludedFields[i].indexOf('.') < 0) {
                 if (excludedFields[i] === topField) {
                     idx.push(i);
@@ -84,7 +84,7 @@ var _filterExcludedField = function(fields, blacklist) {
         }
 
         if (idx.length > 0) {
-            for (var j = 0; j < excludedFields.length; j += 1) {
+            for (let j = 0; j < excludedFields.length; j += 1) {
                 if (idx.indexOf(j) < 0) {
                     _excludedFields.push(excludedFields[j]);
                 }
@@ -96,22 +96,22 @@ var _filterExcludedField = function(fields, blacklist) {
     return excludedFields;
 };
 
-var _mergeStringFields = function(srcFields, defaultFields) {
-    var excludedFields = [];
-    srcFields.forEach(function (field) {
+const _mergeStringFields = function(srcFields, defaultFields) {
+    let excludedFields = [];
+    srcFields.forEach(function(field) {
         excludedFields.push(field.slice(1));
     });
     excludedFields = _filterExcludedField(excludedFields, defaultFields);
-    excludedFields = excludedFields.map(function (field) {
+    excludedFields = excludedFields.map(function(field) {
         return '-' + field;
     });
     return excludedFields.join(' ');
 };
 
 function _cleanUpObjectFields(fields) {
-    var excludedFields = [];
-    var includedFields = [];
-    Object.keys(fields).forEach(function (field) {
+    let excludedFields = [];
+    let includedFields = [];
+    Object.keys(fields).forEach(function(field) {
         if (fields[field]) {
             includedFields.push(field);
         } else {
@@ -125,26 +125,26 @@ function _cleanUpObjectFields(fields) {
 
     excludedFields = _filterExcludedField(excludedFields, includedFields);
 
-    var ret = {};
-    excludedFields.forEach(function (field) {
+    let ret = {};
+    excludedFields.forEach(function(field) {
         ret[field] = 0;
     });
 
     return ret;
 }
 
-var setDefaultFields = function(srcFields, defaultFields) {
+const setDefaultFields = function(srcFields, defaultFields) {
     if (!srcFields) {
         return srcFields;
     }
 
-    switch (typeof(srcFields)) {
+    switch (typeof srcFields) {
         case 'string':
-            var fieldArray = srcFields.split(' ');
+            let fieldArray = srcFields.split(' ');
             if (_checkExcludeOnly(fieldArray)) {
                 return _mergeStringFields(fieldArray, defaultFields);
             }
-            defaultFields.forEach(function (field) {
+            defaultFields.forEach(function(field) {
                 if (!field) {
                     return;
                 }
@@ -157,7 +157,7 @@ var setDefaultFields = function(srcFields, defaultFields) {
             if (!Object.keys(srcFields).length) {
                 return srcFields;
             }
-            defaultFields.forEach(function (field) {
+            defaultFields.forEach(function(field) {
                 if (!field) {
                     return;
                 }
@@ -171,19 +171,19 @@ var setDefaultFields = function(srcFields, defaultFields) {
     }
 };
 
-var extractDelta = function(doc) {
+const extractDelta = function(doc) {
     return (doc.$__delta() || [null, {}])[1];
 };
 
-var NODE_VERSIONS =
+const NODE_VERSIONS =
         process.version.replace('v', '').split('.').map(Math.floor);
 
-var nextTick;
+let nextTick;
 if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
     if (global.setImmediate) {
         nextTick = global.setImmediate;
     } else {
-        var timers = require('timers');
+        let timers = require('timers');
         if (timers.setImmediate) {
             nextTick = function() {
                 timers.setImmediate.apply(this, arguments);
@@ -192,13 +192,13 @@ if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
     }
 }
 
-var DEBUG = function() {
+const DEBUG = function() {
     if (global.TRANSACTION_DEBUG_LOG) {
         console.log.apply(console, arguments);
     }
 };
 
-var addShardKeyDatas = function(pseudoModel, src, dest) {
+const addShardKeyDatas = function(pseudoModel, src, dest) {
     if (!pseudoModel || !pseudoModel.shardKey ||
             !Array.isArray(pseudoModel.shardKey)) {
         return;
@@ -206,7 +206,7 @@ var addShardKeyDatas = function(pseudoModel, src, dest) {
     pseudoModel.shardKey.forEach(function(sk) { dest[sk] = src[sk]; });
 };
 
-var removeShardKeySetData = function(shardKey, op) {
+const removeShardKeySetData = function(shardKey, op) {
     if (!shardKey || !Array.isArray(shardKey)) {
         return;
     }
