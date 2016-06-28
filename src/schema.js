@@ -80,10 +80,17 @@ TransactionSchema.attachShardKey = function(doc) {
 // * doc - :Document:
 TransactionSchema.statics.new =
 TransactionSchema.statics.begin = async function(callback) {
-    let transaction = new this();
-    transaction.begin(function(err) {
-        callback(err, transaction);
-    });
+    let self = this;
+    let promise = (async() => {
+        let transaction = new self();
+        await transaction.begin();
+        return transaction;
+    })()
+
+    if (callback) {
+        return promise.then((ret) => callback(null, ret)).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction.isExpired
@@ -676,8 +683,8 @@ TransactionSchema.methods.find = async function(model, ...args) {
     let callback;
     if (typeof args[args.length - 1] == 'function') {
         callback = args[args.length - 1];
+        args.pop();
     }
-    args.pop();
 
     let [conditions, options] = args;
     conditions = conditions || {};
@@ -763,8 +770,8 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
     let callback;
     if (typeof args[args.length - 1] == 'function') {
         callback = args[args.length - 1];
+        args.pop();
     }
-    args.pop();
 
     let [conditions, options] = args;
     conditions = conditions || {};

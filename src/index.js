@@ -464,8 +464,7 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
 
     // syntactic sugar
     ['', 'Force'].forEach(function (lock) {
-        model['findById' + lock] = function () {
-            let args = Array.prototype.slice.call(arguments);
+        model['findById' + lock] = function (...args) {
             args[0] = {_id: args[0]};
             return this['findOne' + lock].apply(this, args);
         };
