@@ -293,7 +293,7 @@ describe('Save with transaction', function() {
         var self  = this;
         sync.fiber(function() {
             self.t.removeDoc(self.x);
-            self.t.expire();
+            self.t.expire(sync.defer()); sync.await();
             should.exists(self.x.getNative());
         }, done);
     });
@@ -887,7 +887,7 @@ describe('Transaction state conflict', function() {
         var self = this;
         sync.fiber(function() {
             self.t._commit(sync.defer()); sync.await();
-            self.t.expire();
+            self.t.expire(sync.defer()); sync.await();
             self.t.state.should.eql('commit');
         }, done);
     });
@@ -936,7 +936,7 @@ describe('Transaction state conflict', function() {
             t1.state = 'commit';
             t1.save(sync.defer()); sync.await();
             try {
-                self.t.expire();
+                self.t.expire(sync.defer()); sync.await();
                 should.fail('no error was thrown');
             } catch(e) {
                 e.message.should.eql(ERRORS.SOMETHING_WRONG);
@@ -977,12 +977,15 @@ describe('Transaction state conflict', function() {
         sync.fiber(function() {
             var save = self.t._moveState;
             var called = false;
-            self.t._moveState = function(_, __, cb) {
+            self.t._moveState = async function(_, __, cb) {
                 if (!called) {
                     called = true;
-                    return cb('something wrong');
+                    if (cb) {
+                        return cb('something wrong');
+                    }
+                    throw 'something wrong';
                 }
-                save.apply(self.t, arguments);
+                return save.apply(self.t, arguments);
             };
             try {
                 self.t.commit();

@@ -33,23 +33,25 @@
 //
 // So, we decide if update result count is 0, send `findOne` command,
 // recheck document change.
-"use strict";
-var async = require('async');
-var sync = require('synchronize');
-var mongoose = require('mongoose');
-var mongooseutils = require('mongoose/lib/utils');
-var _ = require('underscore');
-var atomic = require('./atomic');
-var utils = require('./utils');
-var TransactionError = require('./error');
-var DEFINE = require('./define');
-var ModelMap = require('./modelmap');
-var ERROR_TYPE = DEFINE.ERROR_TYPE;
-var DEBUG = utils.DEBUG;
-var toCollectionName = mongooseutils.toCollectionName;
-var ONE_MINUTE = 60 * 1000;
+'use strict';
+const Promise = require('songbird');
+const async = require('async');
+const sync = require('synchronize');
+const mongoose = require('mongoose');
+const mongooseutils = require('mongoose/lib/utils');
+const _ = require('underscore');
+const atomic = require('./atomic');
+const utils = require('./utils');
+const helper = require('./helper');
+const TransactionError = require('./error');
+const DEFINE = require('./define');
+const ModelMap = require('./modelmap');
+const ERROR_TYPE = DEFINE.ERROR_TYPE;
+const DEBUG = utils.DEBUG;
+const toCollectionName = mongooseutils.toCollectionName;
+const ONE_MINUTE = 60 * 1000;
 
-var TransactionSchema = new mongoose.Schema({
+const TransactionSchema = new mongoose.Schema({
     history: [],
     state: { type: String, required: true, 'default': 'pending' },
 });
@@ -78,10 +80,9 @@ TransactionSchema.attachShardKey = function(doc) {
 // #### Callback arguments
 // * err
 // * doc - :Document:
-TransactionSchema.statics.new = TransactionSchema.statics.begin =
-        function(callback) {
-    callback = callback || function() {};
-    var transaction = new this();
+TransactionSchema.statics.new =
+TransactionSchema.statics.begin = async function(callback) {
+    let transaction = new this();
     transaction.begin(function(err) {
         callback(err, transaction);
     });
@@ -95,9 +96,9 @@ TransactionSchema.statics.new = TransactionSchema.statics.begin =
 // #### Return
 // :Boolean:
 TransactionSchema.methods.isExpired = function isExpired() {
-    var issued = this._id.getTimestamp();
-    var now = new Date();
-    var diff = now - issued;
+    let issued = this._id.getTimestamp();
+    let now = new Date();
+    let diff = now - issued;
     return TransactionSchema.TRANSACTION_EXPIRE_GAP < diff;
 };
 
@@ -111,12 +112,21 @@ TransactionSchema.methods.isExpired = function isExpired() {
 //
 // #### Callback arguments
 // * err
-TransactionSchema.methods.begin = function(callback) {
-    this.state = 'pending';
-    this._docs = [];
-    DEBUG('transaction begin', this._id);
-    TransactionSchema.attachShardKey(this);
-    this.save(callback);
+TransactionSchema.methods.begin = async function(callback) {
+    let self = this;
+    self.state = 'pending';
+    self._docs = [];
+
+    let promise = (async() => {
+        DEBUG('transaction begin', self._id);
+        TransactionSchema.attachShardKey(self);
+        await helper.save(self);
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction.add
@@ -136,47 +146,53 @@ TransactionSchema.methods.begin = function(callback) {
 // * 50 - unknown colllection
 //
 // SeeAlso :atomic.acquireTransactionLock:
-TransactionSchema.methods.add = function (doc, callback) {
-    callback = callback || function() {};
-    var self = this;
-    if (Array.isArray(doc)) {
-        return async.each(doc, function(d, next) {
-            self.add(d, next);
-        }, callback);
-    }
-    var pseudoModel = ModelMap.getPseudoModel(doc);
-    TransactionSchema.attachShardKey(self);
-    sync.fiber(function() {
-        doc.validate(sync.defer()); sync.await();
+TransactionSchema.methods.add = async function (doc, callback) {
+    let self = this;
+
+    let promise = (async() => {
+        if (Array.isArray(doc)) {
+            await Promise.each(doc, async(d) => {
+                await self.add(d);
+            });
+            return;
+        }
+
+        let pseudoModel = ModelMap.getPseudoModel(doc);
+        TransactionSchema.attachShardKey(self);
+
+        await helper.validate(doc);
         if (doc.isNew) {
             // create new document
-            var data = {_id: doc._id, t: self._id, __new: true};
+            let data = {_id: doc._id, t: self._id, __new: true};
             utils.addShardKeyDatas(pseudoModel, doc, data);
-            doc.collection.insert(data, sync.defer()); sync.await();
+            await helper.insert(doc.collection, data);
             self._docs.push(doc);
             return;
         }
         if (doc.t && !DEFINE.NULL_OBJECTID.equals(doc.t) &&
                 doc.t.toString() != self._id.toString()) {
-
-            var hint = {collection: doc && ModelMap.getCollectionName(doc),
+            let hint = {collection: doc && ModelMap.getCollectionName(doc),
                         doc: doc && doc._id,
                         transaction: self};
-            throw new TransactionError(ERROR_TYPE.BROKEN_DATA,
-                                       hint);
+            throw new TransactionError(ERROR_TYPE.BROKEN_DATA, hint);
         }
         if (doc.t && !DEFINE.NULL_OBJECTID.equals(doc.t)) {
             // FIXME: preload transacted
             return;
         }
-        var query = {_id: doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
-            {t: {$exists: false}}]};
+        let query = {_id: doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
+                                         {t: {$exists: false}}]};
         utils.addShardKeyDatas(pseudoModel, doc, query);
-        var update = {$set: {t: self._id}};
-        atomic.acquireLock(pseudoModel.connection.db, doc.collection.name,
-                           query, update, sync.defer()); sync.await();
+        let update = {$set: {t: self._id}};
+        await atomic.acquireLock(pseudoModel.connection.db,
+                                 doc.collection.name, query, update);
         self._docs.push(doc);
-    }, callback);
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction.removeDoc
@@ -191,15 +207,19 @@ TransactionSchema.methods.add = function (doc, callback) {
 //
 // #### Transaction errors
 // SeeAlso :Transaction.add:
-TransactionSchema.methods.removeDoc = function(doc, callback) {
-    var pseudoModel;
-    try {
-        pseudoModel = ModelMap.getPseudoModel(doc);
-    } catch(e) {
-        return callback(e);
+TransactionSchema.methods.removeDoc = async function(doc, callback) {
+    let self = this;
+
+    let promise = (async() => {
+        let pseudoModel = ModelMap.getPseudoModel(doc);
+        doc.isRemove = true;
+        await self.add(doc);
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
     }
-    doc.isRemove = true;
-    this.add(doc, callback);
+    return promise;
 };
 
 // ### Transaction._moveState
@@ -218,43 +238,43 @@ TransactionSchema.methods.removeDoc = function(doc, callback) {
 //
 // #### Transaction errors
 // * 41 - state already changed; process conflict
-TransactionSchema.methods._moveState = function(prev, delta, callback) {
-    var self = this;
-    callback = callback || function() {};
-    var transactionModel;
-    try {
-        transactionModel = ModelMap.getPseudoModel(
+TransactionSchema.methods._moveState = async function(prev, delta, callback) {
+    let self = this;
+
+    let promise = (async() => {
+        let transactionModel = ModelMap.getPseudoModel(
             TransactionSchema.RAW_TRANSACTION_COLLECTION
         );
-    } catch(e) {
-        return callback(e);
-    }
-    var query = {_id: self._id, state: prev};
-    TransactionSchema.attachShardKey(query);
-    sync.fiber(function() {
-        atomic.pseudoFindAndModify(transactionModel.connection.db,
-                                   TransactionSchema.RAW_TRANSACTION_COLLECTION,
-                                   query, delta,
-                                   sync.defers('numberUpdated', 'collection'));
-        var __ = sync.await();
-        if (__.numberUpdated == 1) {
+        let query = {_id: self._id, state: prev};
+        TransactionSchema.attachShardKey(query);
+
+        let [numberUpdated, collection] = await atomic.pseudoFindAndModify(
+                transactionModel.connection.db,
+                TransactionSchema.RAW_TRANSACTION_COLLECTION,
+                query, delta
+        );
+        if (numberUpdated == 1) {
             return;
         }
         // if `findAndModify` return wrong result,
         // it only can wrong query case.
-        var modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
+        let modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
         delete modQuery.state;
 
-        __.collection.findOne(modQuery, sync.defer());
-        var updatedDoc = sync.await();
-        var state1 = delta.state || ((delta.$set || {}).state);
-        var state2 = updatedDoc && updatedDoc.state;
+        let updatedDoc = await helper.findOne(collection, modQuery);
+        let state1 = delta.state || ((delta.$set || {}).state);
+        let state2 = updatedDoc && updatedDoc.state;
         if (state1 != state2) {
             throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
                                        {transaction: self, query: query});
         }
         return (updatedDoc && updatedDoc.history) || [];
-    }, callback);
+    })();
+
+    if (callback) {
+        return promise.then((ret) => callback(null, ret)).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction.commit
@@ -265,56 +285,58 @@ TransactionSchema.methods._moveState = function(prev, delta, callback) {
 //
 // #### Callback arguments
 // * err
-TransactionSchema.methods.commit = function (callback) {
-    var self = this;
-    callback = callback || function() {};
+TransactionSchema.methods.commit = async function(callback) {
+    let self = this;
 
-    sync.fiber(function() {
-        self._commit(sync.defer()); sync.await();
-        var errors = [];
-        async.each(self.history, function (history, next) {
-            var pseudoModel;
+    let promise = (async() => {
+        await self._commit();
+        let errors = [];
+
+        await Promise.each(self.history, async(history) => {
+            let pseudoModel;
             try {
                 pseudoModel = ModelMap.getPseudoModel(history.col);
             } catch(e) {
                 errors.push(e);
-                return next();
+                return;
             }
-            var query = {_id: history.id, t: self._id};
+            let query = {_id: history.id, t: self._id};
             utils.addShardKeyDatas(pseudoModel, history, query);
             if (history.options && history.options.remove) {
-                pseudoModel.connection.collection(history.col)
-                           .remove(query, function(err) {
-                    if (err) {
-                        errors.push(err);
-                    }
-                    next();
-                });
+                let col = pseudoModel.connection.collection(history.col);
+                try {
+                    await helper.remove(col, query);
+                } catch(e) {
+                    errors.push(err);
+                }
                 return;
             }
             if (!history.op) {
-                utils.nextTick(function () {
-                    next();
-                });
+                await utils.sleep(-1);
                 return;
             }
-            var op = utils.unwrapMongoOp(JSON.parse(history.op));
+            let op = utils.unwrapMongoOp(JSON.parse(history.op));
             utils.removeShardKeySetData(pseudoModel.shardKey, op);
-            atomic.releaseLock(pseudoModel.connection.db, history.col, query,
-                               op, function(err) {
-                if (err) {
-                    errors.push(err);
-                }
-                return next();
-            });
-        }, sync.defer()); sync.await();
+            try {
+                await atomic.releaseLock(pseudoModel.connection.db,
+                                         history.col, query, op);
+            } catch(e) {
+                errors.push(e);
+            }
+        });
+
         if (errors.length) {
             console.error('errors', errors);
             // TODO: cleanup batch
             return;
         }
-        self.collection.remove({_id: self._id}, sync.defer()); sync.await();
-    }, callback);
+        await helper.remove(self.collection, {_id: self._id});
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction._makeHistory
@@ -329,15 +351,23 @@ TransactionSchema.methods.commit = function (callback) {
 //
 // #### Callback arguments
 // * err
-TransactionSchema.methods._makeHistory = function(callback) {
-    var self = this;
-    var errors = [];
-    if (self.history.length) {
-        return callback(errors);
-    }
-    async.each(self._docs || [], function(doc, next) {
-        doc.validate(function(err) {
-            var history = {
+TransactionSchema.methods._makeHistory = async function(callback) {
+    let self = this;
+    let promise = (async() => {
+        let errors = [];
+
+        if (self.history.length) {
+            return errors;
+        }
+
+        await Promise.each(self._docs || [], async(doc) => {
+            let err;
+            try {
+                await helper.validate(doc);
+            } catch(e) {
+                err = e;
+            }
+            let history = {
                 col: doc.collection.name,
                 id: doc._id,
                 options: {
@@ -345,19 +375,15 @@ TransactionSchema.methods._makeHistory = function(callback) {
                     remove: doc.isRemove,
                 },
             };
-            try {
-                utils.addShardKeyDatas(ModelMap.getPseudoModel(doc), doc,
-                                       history);
-            } catch(e) {
-                return next(e);
-            }
+            utils.addShardKeyDatas(ModelMap.getPseudoModel(doc), doc, history);
             self.history.push(history);
             if (err) {
                 errors.push(err);
-                return next(); // no need more action
+                // no need more action
+                return;
             }
 
-            var delta = utils.extractDelta(doc);
+            let delta = utils.extractDelta(doc);
             delta.$set = delta.$set || {};
             delta.$set.t = DEFINE.NULL_OBJECTID;
 
@@ -374,11 +400,15 @@ TransactionSchema.methods._makeHistory = function(callback) {
             history.op = delta && JSON.stringify(utils.wrapMongoOp(delta));
 
             doc.$__reset();
-            next();
         });
-    }, function() {
-        callback(errors);
-    });
+
+        return errors;
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction._commit
@@ -397,53 +427,46 @@ TransactionSchema.methods._makeHistory = function(callback) {
 // * 60 - unknown error
 //
 // SeeAlso :Transaction._moveState:
-TransactionSchema.methods._commit = function(callback) {
-    var self = this;
-    callback = callback || function() {};
+TransactionSchema.methods._commit = async function(callback) {
+    let self = this;
 
-    if (self.state == 'commit') {
-        DEBUG('retry transaction commit', self._id);
-        return callback();
-    }
+    let promise = (async() => {
+        if (self.state == 'commit') {
+            DEBUG('retry transaction commit', self._id);
+            return;
+        }
 
-    if (self.state == 'expire') {
-        DEBUG('transaction expired', self._id);
-        return callback(
-            new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED,
-                                 {transaction: self})
-        );
-    }
+        if (self.state == 'expire') {
+            DEBUG('transaction expired', self._id);
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED,
+                                       {transaction: self})
+        }
 
-    sync.fiber(function() {
-        var hint = {transaction: self};
-        try {
-            self._makeHistory(sync.defer()); sync.await();
-        } catch(errors) {
-            if (errors.length) {
-                console.error(errors);
-                self.expire(sync.defer()); sync.await();
-                if (errors[0]) {
-                    throw errors[0];
-                }
-                throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR,
-                                           hint);
+        let hint = {transaction: self};
+        let errors = await self._makeHistory();
+        if (errors.length) {
+            console.error(errors);
+            await helper.promisify(self, self.expire)();
+            if (errors[0]) {
+                throw errors[0];
             }
+            throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR,
+                                       hint);
         }
         if (self.isExpired()) {
-            self.expire(sync.defer()); sync.await();
+            await helper.promisify(self, self.expire)();
             throw new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED, hint);
         }
         self.state = 'commit';
         DEBUG('transaction commit', self._id);
-        var delta = utils.extractDelta(self);
-        var history;
+        let delta = utils.extractDelta(self);
+        let history;
         try {
-            self._moveState('pending', delta, sync.defer());
-            history = sync.await();
+            history = await self._moveState('pending', delta);
         } catch(e) {
             // this case only can db error or already expired
             self.state = undefined;
-            self.expire(sync.defer()); sync.await();
+            await helper.promisify(self, self.expire)();
             throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR, hint);
         }
         if (!history) {
@@ -454,7 +477,12 @@ TransactionSchema.methods._commit = function(callback) {
             self.history = history;
         }
         self.$__reset();
-    }, callback);
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction._expire
@@ -470,32 +498,34 @@ TransactionSchema.methods._commit = function(callback) {
 //
 // #### Transaction errors
 // SeeAlso :Transaction._moveState:
-TransactionSchema.methods._expire = function (callback) {
-    var self = this;
-    callback = callback || function() {};
+TransactionSchema.methods._expire = async function(callback) {
+    let self = this;
 
-    if (self.state == 'expire') {
-        DEBUG('retry transaction expired', self._id);
-        return callback();
-    }
-    if (self.state == 'commit') {
-        DEBUG('transaction committed', self._id);
-        return callback();
-    }
     DEBUG('transaction expired', self._id);
-    sync.fiber(function() {
-        try {
-            self._makeHistory(sync.defer()); sync.await();
-        } catch(errors) {}
+
+    let promise = (async() => {
+        if (self.state == 'expire') {
+            DEBUG('retry transaction expired', self._id);
+            return;
+        }
+        if (self.state == 'commit') {
+            DEBUG('transaction committed', self._id);
+            return;
+        }
+        await self._makeHistory();
         self.state = 'expire';
-        var delta = utils.extractDelta(self);
-        self._moveState('pending', delta, sync.defer());
-        var history = sync.await();
+        let delta = utils.extractDelta(self);
+        let history = await self._moveState('pending', delta);
         if (history) {
             self.history = history;
         }
         self.$__reset();
-    }, callback);
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction.expire
@@ -508,52 +538,58 @@ TransactionSchema.methods._expire = function (callback) {
 //
 // #### Callback arguments
 // * err
-TransactionSchema.methods.expire = function(callback) {
-    var self = this;
-    callback = callback || function() {};
+TransactionSchema.methods.expire = async function(callback) {
+    let self = this;
 
-    sync.fiber(function() {
-        self._expire(sync.defer()); sync.await();
-        var errors = [];
-        async.each(self.history, function (history, next) {
+    let promise = (async() => {
+        await self._expire();
+        let errors = [];
+
+        await Promise.each(self.history, async(history) => {
             if (!history.op) {
-                return utils.nextTick(function () { next(); });
+                await utils.sleep(-1);
+                return;
             }
-            var pseudoModel;
+            let pseudoModel;
             try {
                 pseudoModel = ModelMap.getPseudoModel(history.col);
             } catch(e) {
                 errors.push(e);
-                return next();
-            }
-            var query = {_id: history.id, t: self._id};
-            utils.addShardKeyDatas(pseudoModel, history, query);
-            if (history.options && history.options.new) {
-                pseudoModel.connection.collection(history.col)
-                           .remove(query, function(err) {
-                    if (err) {
-                        errors.push(err);
-                    }
-                    next();
-                });
                 return;
             }
-            atomic.releaseLock(pseudoModel.connection.db, history.col, query,
-                               {$set: {t: DEFINE.NULL_OBJECTID}},
-                               function(err) {
-                if (err) {
+
+            let query = {_id: history.id, t: self._id};
+            utils.addShardKeyDatas(pseudoModel, history, query);
+            if (history.options && history.options.new) {
+                let col = pseudoModel.connection.collection(history.col);
+                try {
+                    await helper.remove(col, query);
+                } catch(e) {
                     errors.push(err);
                 }
-                return next();
-            });
-        }, sync.defer()); sync.await();
+                return;
+            }
+
+            try {
+                await atomic.releaseLock(pseudoModel.connection.db,
+                                         history.col, query,
+                                         {$set: {t: DEFINE.NULL_OBJECTID}});
+            } catch(e) {
+                errors.push(err);
+            }
+        });
         if (errors.length) {
             console.error('errors', errors);
             // TODO: cleanup batch
             return;
         }
-        self.collection.remove({_id: self._id}, sync.defer()); sync.await();
-    }, callback);
+        await helper.remove(self.collection, {_id: self._id});
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction.cancel
@@ -567,11 +603,17 @@ TransactionSchema.methods.expire = function(callback) {
 //
 // #### Callback arguments
 // * err
-TransactionSchema.methods.cancel = function(reason, callback) {
-    callback = callback || function() {};
-    this.expire(function() {
-        callback(reason);
-    });
+TransactionSchema.methods.cancel = async function(reason, callback) {
+    let self = this;
+    let promise = (async() => {
+        await self.expire();
+        throw reason;
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction._postProcess
@@ -585,24 +627,34 @@ TransactionSchema.methods.cancel = function(reason, callback) {
 //
 // #### Transaction errors
 // * 43 - conflict another transaction; transaction still alive
-TransactionSchema.methods._postProcess = function(callback) {
-    switch (this.state) {
-        case 'pending':
-            if (this.isExpired()) {
-                return this.expire(callback);
-            }
-            var hint = {collection: ModelMap.getCollectionName(this),
-                        transaction: this};
-            var error = new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
-                                             hint);
-            return callback(error);
-        case 'commit':
-            return this.commit(callback);
-        case 'expire':
-            return this.expire(callback);
-        default:
-            return callback(new TransactionError(ERROR_TYPE.SOMETHING_WRONG));
+TransactionSchema.methods._postProcess = async function(callback) {
+    let self = this;
+    let promise = (async() => {
+        switch (self.state) {
+            case 'pending':
+                if (self.isExpired()) {
+                    await self.expire();
+                    return;
+                }
+                let hint = {collection: ModelMap.getCollectionName(self),
+                            transaction: self};
+                throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
+                                           hint);
+            case 'commit':
+                await self.commit();
+                return;
+            case 'expire':
+                await self.expire();
+                return;
+            default:
+                throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG);
+        }
+    })();
+
+    if (callback) {
+        return promise.then(callback).catch(callback);
     }
+    return promise;
 };
 
 TransactionSchema.methods.convertQueryForAvoidConflict =
@@ -632,90 +684,73 @@ TransactionSchema.methods.convertQueryForAvoidConflict =
 // #### Transaction errors
 // * 43 - conflict another transaction; document locked
 // * 50 - unknown collection
-TransactionSchema.methods.find = function(model, conditions, options,
-                                          callback) {
-    var self = this;
-    if (typeof(conditions) == 'function') {
-        callback = conditions;
-        conditions = {};
-        options = {};
+TransactionSchema.methods.find = async function(model, ...args) {
+    let self = this;
+    let callback;
+    if (typeof args[args.length - 1] == 'function') {
+        callback = args[args.length - 1];
     }
-    if (typeof(options) == 'function') {
-        callback = options;
-        options = {};
-    }
-    callback = callback || function() {};
+    args.pop();
+
+    let [conditions, options] = args;
     conditions = conditions || {};
+    options = options || {};
+
     conditions.$or = conditions.$or || [];
     conditions.$or = conditions.$or.concat([{t: DEFINE.NULL_OBJECTID},
                                             {t: {$exists: false}}]);
 
-    var pseudoModel;
-    try {
-        pseudoModel = ModelMap.getPseudoModel(model);
-    } catch(e) {
-        return callback(e);
-    }
 
-    sync.fiber(function() {
-        model.collection.find(conditions, options, sync.defer());
-        var cursor = sync.await();
-        cursor.toArray(sync.defer());
-        var docs = sync.await();
+    let promise = (async() => {
+        let pseudoModel = ModelMap.getPseudoModel(model);
+
+        let cursor = await helper.find(model.collection, conditions, options);
+        let docs = await helper.toArray(cursor);
         if (!docs) {
             return;
         }
-        async.map(docs, function(_doc, next) {
-            var query = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
+        let RETRY_LIMIT = 5;
+        let locked = await Promise.map(docs, async(_doc) => {
+            let query = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                               {t: {$exists: false}}]};
             utils.addShardKeyDatas(pseudoModel, _doc, query);
-
-            var query2 = {_id: _doc._id};
+            let query2 = {_id: _doc._id};
             utils.addShardKeyDatas(pseudoModel, _doc, query2);
-
-            sync.fiber(function() {
-                var remainRetry = 5;
-                while (true) {
-                    remainRetry -= 1;
-                    var doc;
-                    try {
-                        model.findOneAndUpdate(query, {$set: {t: self._id}},
-                                               {new: true,
-                                                fields: options.fields},
-                                               sync.defer());
-                        doc = sync.await();
-                        if (doc) {
-                            self._docs.push(doc);
-                            return doc;
-                        }
-                        if (!remainRetry) {
-                            var hint = {
-                                collection: _doc &&
-                                            ModelMap.getCollectionName(_doc),
-                                doc: _doc && _doc._id,
-                                query: query,
-                                transaction: self
-                            };
-                            throw new TransactionError(
-                                ERROR_TYPE.TRANSACTION_CONFLICT_2,
-                                hint
-                            );
-                        }
-                        try {
-                            model.findOne(query2, sync.defer()); sync.await();
-                        } catch(e) {}
-                    } catch(e) {
-                        if (!remainRetry) {
-                            throw e;
-                        }
-                    }
-                    setTimeout(sync.defer(), _.sample([37, 59, 139]));
-                    sync.await();
+            let lastError;
+            for (let i = 0; i < RETRY_LIMIT; i += 1) {
+                let doc;
+                try {
+                    doc = await helper
+                        .findOneAndUpdate(model, query, {$set: {t: self._id}},
+                                          {new: true, fields: options.fields});
+                } catch(e) {
+                    lastError = e;
+                };
+                if (doc) {
+                    self._docs.push(doc);
+                    return doc;
                 }
-            }, next);
-        }, sync.defer());
-        return sync.await();
-    }, callback);
+                await utils.sleep(_.sample([37, 59, 139]));
+            }
+            let hint = {
+                collection: _doc &&
+                            ModelMap.getCollectionName(_doc),
+                doc: _doc && _doc._id,
+                query: query,
+                transaction: self
+            };
+            lastError = lastError ||
+                        new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
+                                             hint);
+            throw lastError;
+        });
+        return locked;
+    })();
+
+    if (callback) {
+        return promise.then((ret) => callback(null, ret)).catch(callback);
+    }
+    return promise;
 };
 
 // ### Transaction.findOne
@@ -736,73 +771,65 @@ TransactionSchema.methods.find = function(model, conditions, options,
 // #### Transaction errors
 // * 43 - conflict another transaction; transaction still alive
 // * 50 - unknown collection
-TransactionSchema.methods.findOne = function(model, conditions, options,
-                                             callback) {
-    var self = this;
-    if (typeof(conditions) == 'function') {
-        callback = conditions;
-        conditions = {};
-        options = {};
+TransactionSchema.methods.findOne = async function(model, ...args) {
+    let self = this;
+    let callback;
+    if (typeof args[args.length - 1] == 'function') {
+        callback = args[args.length - 1];
     }
-    if (typeof(options) == 'function') {
-        callback = options;
-        options = {};
-    }
-    callback = callback || function() {};
+    args.pop();
+
+    let [conditions, options] = args;
     conditions = conditions || {};
+    options = options || {};
 
-    var pseudoModel;
-    try {
-        pseudoModel = ModelMap.getPseudoModel(model);
-    } catch(e) {
-        return callback(e);
-    }
-
-    sync.fiber(function() {
-        model.collection.findOne(conditions, options, sync.defer());
-        var _doc = sync.await();
+    let promise = (async() => {
+        let pseudoModel = ModelMap.getPseudoModel(model);
+        let _doc = await helper.findOne(model.collection, conditions, options);
         if (!_doc) {
             return;
         }
-        var query1 = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
+
+        let query1 = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                            {t: {$exists: false}}]};
         utils.addShardKeyDatas(pseudoModel, _doc, query1);
-        var query2 = {_id: _doc._id};
+        let query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
-        var remainRetry = 5;
-        while (true) {
-            remainRetry -= 1;
-            var doc;
+        let RETRY_LIMIT = 5;
+        let lastError;
+        for (let i = 0; i < RETRY_LIMIT; i += 1) {
+            let doc;
             try {
-                model.findOneAndUpdate(query1, {$set: {t: self._id}},
-                                       {new: true, fields: options.fields},
-                                       sync.defer());
-                doc = sync.await();
-            } catch(e) {
-                if (!remainRetry) {
-                    throw e;
-                }
-            }
+                doc = await helper.findOneAndUpdate(model, query1,
+                                                    {$set: {t: self._id}},
+                                                    {new: true,
+                                                     fields: options.fields});
+            } catch(e) {}
             if (doc) {
                 self._docs.push(doc);
                 return doc;
             }
-            if (!remainRetry) {
-                var hint = {collection: _doc &&
-                                        ModelMap.getCollectionName(_doc),
-                            doc: _doc && _doc._id,
-                            query: query1,
-                            transaction: self};
-                throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
-                                           hint);
-            }
+
             // if t is not NULL_OBJECTID, try to go end of transaction process
             try {
-                model.findOne(query2, sync.defer()); sync.await();
+                await helper.findOne(model, query2);
             } catch(e) {}
-            setTimeout(sync.defer(), _.sample([37, 59, 139])); sync.await();
+
+            await utils.sleep(_.sample([37, 59, 139]));
         }
-    }, callback);
+
+        let hint = {collection: _doc &&
+                                ModelMap.getCollectionName(_doc),
+                    doc: _doc && _doc._id,
+                    query: query1,
+                    transaction: self};
+        throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2, hint);
+    })();
+
+    if (callback) {
+        return promise.then((ret) => callback(null, ret)).catch(callback);
+    }
+    return promise;
 };
 
 module.exports = TransactionSchema;

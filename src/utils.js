@@ -219,6 +219,9 @@ var removeShardKeySetData = function(shardKey, op) {
 };
 
 const sleep = ((microsec, callback) => {
+    if (microsec <= 0) {
+        return (nextTick || process.nextTick)(callback);
+    }
     setTimeout(callback, microsec);
 }).promise;
 

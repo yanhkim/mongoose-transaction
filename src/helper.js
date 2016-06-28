@@ -7,7 +7,7 @@ const wrap = (method) => {
 }
 
 const promisify = (obj, method) => {
-    if (typeof method == 'string') {
+    if (typeof method === 'string') {
         method = obj[method];
     }
     return ((...args) => {
@@ -17,12 +17,17 @@ const promisify = (obj, method) => {
 
 module.exports = {
     // old version mongo/mongoose functions will stuck with async/await process
+    insert: wrap('insert'),
+    find: wrap('find'),
     findOne: wrap('findOne'),
-    update: wrap('update'),
     findAndModify: wrap('findAndModify'),
+    findOneAndUpdate: wrap('findOneAndUpdate'),
+    update: wrap('update'),
+    save: wrap('save'),
     remove: wrap('remove'),
     executeDbCommand: wrap('executeDbCommand'),
     nextObject: wrap('nextObject'),
     validate: wrap('validate'),
+    toArray: wrap('toArray'),
     promisify: promisify,
 }
