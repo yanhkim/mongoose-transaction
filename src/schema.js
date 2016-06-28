@@ -35,8 +35,6 @@
 // recheck document change.
 'use strict';
 const Promise = require('songbird');
-const async = require('async');
-const sync = require('synchronize');
 const mongoose = require('mongoose');
 const mongooseutils = require('mongoose/lib/utils');
 const _ = require('underscore');
