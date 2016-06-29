@@ -156,9 +156,8 @@ TransactionSchema.methods.add = async function (doc, callback) {
 
     let promise = (async() => {
         if (Array.isArray(doc)) {
-            await Promise.each(doc, async(d) => {
-                await self.add(d);
-            });
+            let promises = doc.map(async(d) => self.add(d));
+            await Promise.all(promises);
             return;
         }
 
@@ -297,7 +296,7 @@ TransactionSchema.methods.commit = async function(callback) {
         await self._commit();
         let errors = [];
 
-        await Promise.each(self.history, async(history) => {
+        let promises = self.history.map(async(history) => {
             let pseudoModel;
             try {
                 pseudoModel = ModelMap.getPseudoModel(history.col);
@@ -329,6 +328,7 @@ TransactionSchema.methods.commit = async function(callback) {
                 errors.push(e);
             }
         });
+        await Promise.all(promises);
 
         if (errors.length) {
             console.error('errors', errors);
@@ -365,7 +365,7 @@ TransactionSchema.methods._makeHistory = async function(callback) {
             return errors;
         }
 
-        await Promise.each(self._docs || [], async(doc) => {
+        let promises = self._docs.map(async(doc) => {
             let err;
             try {
                 await helper.validate(doc);
@@ -406,6 +406,8 @@ TransactionSchema.methods._makeHistory = async function(callback) {
 
             doc.$__reset();
         });
+
+        await Promise.all(promises);
 
         return errors;
     })();
@@ -550,7 +552,7 @@ TransactionSchema.methods.expire = async function(callback) {
         await self._expire();
         let errors = [];
 
-        await Promise.each(self.history, async(history) => {
+        let promises = self.history.map(async(history) => {
             if (!history.op) {
                 await utils.sleep(-1);
                 return;
@@ -583,6 +585,7 @@ TransactionSchema.methods.expire = async function(callback) {
                 errors.push(err);
             }
         });
+        await Promise.all(promises);
         if (errors.length) {
             console.error('errors', errors);
             // TODO: cleanup batch
@@ -704,7 +707,8 @@ TransactionSchema.methods.find = async function(model, ...args) {
             return;
         }
         let RETRY_LIMIT = 5;
-        let locked = await Promise.map(docs, async(_doc) => {
+        let locked = [];
+        let promises = docs.map(async(_doc) => {
             let query = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                               {t: {$exists: false}}]};
             utils.addShardKeyDatas(pseudoModel, _doc, query);
@@ -722,7 +726,9 @@ TransactionSchema.methods.find = async function(model, ...args) {
                 };
                 if (doc) {
                     self._docs.push(doc);
-                    return doc;
+                    locked.push(doc);
+                    //return doc;
+                    return;
                 }
                 await utils.sleep(_.sample([37, 59, 139]));
             }
@@ -738,6 +744,7 @@ TransactionSchema.methods.find = async function(model, ...args) {
                                              hint);
             throw lastError;
         });
+        await Promise.all(promises);
         return locked;
     })();
 

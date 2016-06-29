@@ -241,8 +241,8 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
                 continue;
             }
 
-            await Promise.each(transactionIdDocsMap[transactionId],
-                               async function(doc) {
+            let docs = transactionIdDocsMap[transactionId];
+            let promises = docs.map(async(doc) => {
                 let pseudoModel = ModelMap.getPseudoModel(model);
                 let query = {_id: doc._id, t: doc.t};
                 utils.addShardKeyDatas(pseudoModel, doc, query);
@@ -255,6 +255,8 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
                                          model.collection.name,
                                          query, updateQuery);
             });
+
+            await Promise.all(promises);
         }
     })();
 
