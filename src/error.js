@@ -1,8 +1,7 @@
 'use strict';
-var util = require('util');
+const util = require('util');
 
-var TransactionError = module.exports.TransactionError =
-function TransactionError(type, hint) {
+const TransactionError = function TransactionError(type, hint) {
     Error.call(this);
     Error.captureStackTrace(this, TransactionError);
     this.name = 'TransactionError';

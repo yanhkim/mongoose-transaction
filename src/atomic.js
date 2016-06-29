@@ -33,12 +33,13 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
         // journal: false, // write waits for journal sync
     };
 
-    let promise = (async() => {
+    const promise = (async() => {
         let collection = await db.collection(collectionName);
         let numberUpdated = await helper.update(collection, query, updateData,
                                                 writeOptions);
         return [numberUpdated, collection];
     })();
+
     if (callback) {
         return promise
             .then(ret => callback(null, ret[0], ret[1]))
@@ -67,7 +68,7 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
 // * 42 - conflict another transaction; document locked
 const acquireTransactionLock = async(db, collectionName, query, updateData,
                                      callback) => {
-    let promise = (async() => {
+    const promise = (async() => {
         let [numberUpdated, collection] =
                 await pseudoFindAndModify(db, collectionName, query,
                                           updateData);
@@ -123,7 +124,7 @@ const acquireTransactionLock = async(db, collectionName, query, updateData,
 // * err
 const releaseTransactionLock = async(db, collectionName, query, updateData,
                                      callback) => {
-    let promise = (async() => {
+    const promise = (async() => {
         let [numberUpdated, collection] =
                 await pseudoFindAndModify(db, collectionName, query,
                                           updateData);
@@ -149,7 +150,7 @@ const releaseTransactionLock = async(db, collectionName, query, updateData,
 
 const findAndModifyMongoNativeOlder = async(connection, collection, query,
                                             updateData, fields) => {
-    let data = await helper
+    const data = await helper
             .executeDbCommand(connection.db,
                               {findAndModify: collection.name, query: query,
                                update: updateData, fields: fields, new: true});
@@ -163,18 +164,17 @@ const findAndModifyMongoNativeOlder = async(connection, collection, query,
 
 const findAndModifyMongoNativeNewer = async(collection, query, updateData,
                                             fields) => {
-    let data = await helper
-            .findAndModify(collection, query, [], updateData,
-                           {fields: fields, new: true});
+    let data = await helper.findAndModify(collection, query, [], updateData,
+                                          {fields: fields, new: true});
     // above to 3.7.x less than 4.x
     if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
         return data;
     }
     // above 4.x
     if (!data) {
-        throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
-                                   {collection: collection.name,
-                                    query: query, update: updateData});
+        let hint = {collection: collection.name, query: query,
+                    update: updateData};
+        throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG, hint);
     }
     return data.value;
 };
@@ -194,7 +194,7 @@ const findAndModifyMongoNativeNewer = async(collection, query, updateData,
 // * doc - :Object:
 const findAndModifyMongoNative = async(connection, collection, query,
                                        updateData, fields, callback) => {
-    let promise = (async() => {
+    const promise = (async() => {
         // below 3.6.x
         if (DEFINE.MONGOOSE_VERSIONS[0] < 3 ||
                 (DEFINE.MONGOOSE_VERSIONS[0] === 3 &&

@@ -14,7 +14,7 @@ let connection;
 let Test;
 let Transaction;
 
-const initialize = function(callback) {
+const initialize = (callback) => {
     let config;
     try {
         config = require('./config');
@@ -39,7 +39,7 @@ const getNative = async function() {
 TestSchema.methods.getNative = getNative;
 transaction.TransactionSchema.methods.getNative = getNative;
 
-before(async function (done) {
+before(async(done) => {
     try {
         await initialize.promise();
     } catch (e) {
@@ -53,7 +53,7 @@ before(async function (done) {
         {
             fields: {shard: {type: Number, required: true}},
             rule: {shard: 1, _id: 1},
-            initialize: function(doc) {
+            initialize: (doc) => {
                 doc.shard =
                     doc.shard ||
                     doc._id.getTimestamp()
@@ -82,7 +82,7 @@ beforeEach(function(done) {
     promise.then(done).catch(done);
 });
 
-afterEach(function(done) {
+afterEach((done) => {
     if (!connection || !connection.db) {
         return done();
     }
@@ -303,9 +303,7 @@ describe('Find documents from model', function() {
             let xs1 = await helper.toArray(xs);
             should.exists(xs1);
             xs1.length.should.eql(count);
-            xs1.forEach(function(x) {
-                x.t.should.eql(transaction.NULL_OBJECTID);
-            });
+            xs1.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
         });
 
     it('can be force fetch document, ignoring transaction lock',
@@ -385,7 +383,7 @@ describe('Find documents from transaction', function() {
             let docs = await t2.find(Test, {});
             should.exists(docs);
             docs.length.should.eql(2);
-            docs.forEach(function(d) {
+            docs.forEach((d) => {
                 d.t.should.eql(transaction.NULL_OBJECTID);
                 d.num.should.eql(2);
             });
@@ -416,9 +414,7 @@ describe('Find documents from transaction', function() {
             });
             let xs = await this.t.find(Test, {});
             xs.length.should.eql(2);
-            xs.forEach(function(x) {
-                x.t.should.eql(transaction.NULL_OBJECTID);
-            });
+            xs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
         });
 
     it('find fetch documents and automatic set transaction lock',
@@ -729,12 +725,9 @@ describe('Transaction state conflict', function() {
         let self = this;
         let save = self.t._moveState;
         let called = false;
-        self.t._moveState = async function(_, __, cb) {
+        self.t._moveState = async function(_, __) {
             if (!called) {
                 called = true;
-                if (cb) {
-                    return cb('something wrong');
-                }
                 throw new Error('something wrong');
             }
             return save.apply(self.t, arguments);

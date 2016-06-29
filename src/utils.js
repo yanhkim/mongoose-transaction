@@ -1,9 +1,8 @@
 'use strict';
 require('songbird');
-
 const mongoose = require('mongoose');
 
-const wrapMongoOp = function wrapMongoOp(op) {
+const wrapMongoOp = (op) => {
     let key, val;
     for (key in op) {
         if (op.hasOwnProperty(key)) {
@@ -22,7 +21,7 @@ const wrapMongoOp = function wrapMongoOp(op) {
     return op;
 };
 
-const unwrapMongoOp = function unwrapMongoOp(op) {
+const unwrapMongoOp = (op) => {
     let key, val;
     for (key in op) {
         if (op.hasOwnProperty(key)) {
@@ -45,7 +44,7 @@ const unwrapMongoOp = function unwrapMongoOp(op) {
     return op;
 };
 
-const _checkExcludeOnly = function(fields) {
+const checkExcludeOnly = (fields) => {
     let ret = fields.some(function(field) {
         if (field.indexOf('-') === 0) {
             return;
@@ -55,7 +54,7 @@ const _checkExcludeOnly = function(fields) {
     return !ret;
 };
 
-let _filterExcludedField = function(fields, blacklist) {
+const filterExcludedField = (fields, blacklist) => {
     let excludedFields = JSON.parse(JSON.stringify(fields));
 
     let _excludedFields = [];
@@ -96,22 +95,22 @@ let _filterExcludedField = function(fields, blacklist) {
     return excludedFields;
 };
 
-const _mergeStringFields = function(srcFields, defaultFields) {
+const mergeStringFields = (srcFields, defaultFields) => {
     let excludedFields = [];
     srcFields.forEach(function(field) {
         excludedFields.push(field.slice(1));
     });
-    excludedFields = _filterExcludedField(excludedFields, defaultFields);
+    excludedFields = filterExcludedField(excludedFields, defaultFields);
     excludedFields = excludedFields.map(function(field) {
         return '-' + field;
     });
     return excludedFields.join(' ');
 };
 
-function _cleanUpObjectFields(fields) {
+const cleanUpObjectFields = (fields) => {
     let excludedFields = [];
     let includedFields = [];
-    Object.keys(fields).forEach(function(field) {
+    Object.keys(fields).forEach((field) => {
         if (fields[field]) {
             includedFields.push(field);
         } else {
@@ -123,17 +122,15 @@ function _cleanUpObjectFields(fields) {
         return fields;
     }
 
-    excludedFields = _filterExcludedField(excludedFields, includedFields);
+    excludedFields = filterExcludedField(excludedFields, includedFields);
 
     let ret = {};
-    excludedFields.forEach(function(field) {
-        ret[field] = 0;
-    });
+    excludedFields.forEach((field) => (ret[field] = 0));
 
     return ret;
 }
 
-const setDefaultFields = function(srcFields, defaultFields) {
+const setDefaultFields = (srcFields, defaultFields) => {
     if (!srcFields) {
         return srcFields;
     }
@@ -141,10 +138,10 @@ const setDefaultFields = function(srcFields, defaultFields) {
     switch (typeof srcFields) {
         case 'string':
             let fieldArray = srcFields.split(' ');
-            if (_checkExcludeOnly(fieldArray)) {
-                return _mergeStringFields(fieldArray, defaultFields);
+            if (checkExcludeOnly(fieldArray)) {
+                return mergeStringFields(fieldArray, defaultFields);
             }
-            defaultFields.forEach(function(field) {
+            defaultFields.forEach((field) => {
                 if (!field) {
                     return;
                 }
@@ -157,7 +154,7 @@ const setDefaultFields = function(srcFields, defaultFields) {
             if (!Object.keys(srcFields).length) {
                 return srcFields;
             }
-            defaultFields.forEach(function(field) {
+            defaultFields.forEach((field) => {
                 if (!field) {
                     return;
                 }
@@ -165,13 +162,13 @@ const setDefaultFields = function(srcFields, defaultFields) {
                     srcFields[field] = 1;
                 }
             });
-            return _cleanUpObjectFields(srcFields);
+            return cleanUpObjectFields(srcFields);
         default:
             return srcFields;
     }
 };
 
-const extractDelta = function(doc) {
+const extractDelta = (doc) => {
     return (doc.$__delta() || [null, {}])[1];
 };
 
@@ -191,6 +188,7 @@ if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
         }
     }
 }
+nextTick = nextTick || process.nextTick;
 
 const DEBUG = function() {
     if (global.TRANSACTION_DEBUG_LOG) {
@@ -220,18 +218,18 @@ const removeShardKeySetData = function(shardKey, op) {
 
 const sleep = ((microsec, callback) => {
     if (microsec <= 0) {
-        return (nextTick || process.nextTick)(callback);
+        return nextTick(callback);
     }
     setTimeout(callback, microsec);
 }).promise;
 
 module.exports = {
+    DEBUG: DEBUG,
     wrapMongoOp: wrapMongoOp,
     unwrapMongoOp: unwrapMongoOp,
     setDefaultFields: setDefaultFields,
     extractDelta: extractDelta,
     nextTick: nextTick || process.nextTick,
-    DEBUG: DEBUG,
     addShardKeyDatas: addShardKeyDatas,
     removeShardKeySetData: removeShardKeySetData,
     sleep: sleep,

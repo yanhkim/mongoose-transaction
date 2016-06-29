@@ -16,6 +16,7 @@ const promisify = (obj, method) => {
 }
 
 module.exports = {
+    // FIXME
     // old version mongo/mongoose functions will stuck with async/await process
     insert: wrap('insert'),
     find: wrap('find'),

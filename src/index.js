@@ -71,33 +71,32 @@ let getShardKeyArray = function(shardKey) {
 // * 42 - conflict another transaction; document locked
 // * 43 - conflict another transaction; transaction still alive
 const saveWithoutTransaction = async function(next, callback) {
-    let self = this;
-    if (self.isNew) {
+    if (this.isNew) {
         return next();
     }
 
-    let promise = (async() => {
-        await helper.validate(self);
-        let delta = self.$__delta();
+    const promise = (async() => {
+        await helper.validate(this);
+        let delta = this.$__delta();
         if (!delta) {
             return;
         }
         delta = delta[1];
-        DEBUG('DELTA', self.collection.name, ':', JSON.stringify(delta));
-        let pseudoModel = ModelMap.getPseudoModel(self);
-        self.$__reset();
+        DEBUG('DELTA', this.collection.name, ':', JSON.stringify(delta));
+        let pseudoModel = ModelMap.getPseudoModel(this);
+        this.$__reset();
         // manually save document only can `t` value is unset or NULL_OBJECTID
-        let query = {_id: self._id, $or: [{t: DEFINE.NULL_OBJECTID},
+        let query = {_id: this._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                           {t: {$exists: false}}]};
-        utils.addShardKeyDatas(pseudoModel, self, query);
+        utils.addShardKeyDatas(pseudoModel, this, query);
         // TODO: need delta cross check
         let checkFields = {t: 1};
         let data = await atomic.findAndModify(pseudoModel.connection,
-                                              self.collection, query, delta,
+                                              this.collection, query, delta,
                                               checkFields);
 
-        let hint = {collection: ModelMap.getCollectionName(self),
-                    doc: self._id, query: query};
+        let hint = {collection: ModelMap.getCollectionName(this),
+                    doc: this._id, query: query};
         if (!data) {
             throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_1,
                                        hint);
@@ -106,7 +105,7 @@ const saveWithoutTransaction = async function(next, callback) {
             throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
                                        hint);
         }
-        self.emit('transactedSave');
+        this.emit('transactedSave');
     })();
 
     if (callback) {
@@ -169,7 +168,7 @@ module.exports.addCollectionPseudoModelPair =
         ModelMap.addCollectionPseudoModelPair;
 
 const filterTransactedDocs = async (docs, callback) => {
-    let promise = (async() => {
+    const promise = (async() => {
         if (!docs) {
             throw new Error('invalid documents');
         }
@@ -222,7 +221,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
     let transactionIds = transactedDocs.ids;
     let transactionIdDocsMap = transactedDocs.map;
 
-    let promise = (async() => {
+    const promise = (async() => {
         for (let i = 0; i < transactionIds.length; i += 1) {
             let transactionId = transactionIds[i];
             let query = {
@@ -299,7 +298,7 @@ const find = (proto, ignoreCallback) => {
             }
             args.pop();
         }
-        let promise = (async() => {
+        const promise = (async() => {
             if (args.length > 1) {
                 let pseudoModel = ModelMap.getPseudoModel(proto.model);
                 let _defaultFields =
@@ -381,7 +380,7 @@ const findWaitUnlock = function(proto) {
         }
         args.pop();
 
-        let promise = (async() => {
+        const promise = (async() => {
             if (args.length > 1) {
                 let pseudoModel = ModelMap.getPseudoModel(proto.model);
                 let _defaultFields =
@@ -425,7 +424,7 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
         return res;
     };
 
-    let prototypes = [
+    const prototypes = [
         {
             target: model,
             name: 'find',
@@ -451,6 +450,7 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
             isMultiple: false,
         },
     ];
+
     prototypes.forEach(function(proto) {
         let methodName = proto.alternative || proto.name;
         proto.model = model;

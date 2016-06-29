@@ -5,7 +5,7 @@ const ERROR_TYPE = DEFINE.ERROR_TYPE;
 
 const CollectionPseudoModelMap = {};
 
-const getCollectionName = function(model) {
+const getCollectionName = (model) => {
     if (model.collection && model.collection.name) {
         return model.collection.name;
     } else {
@@ -13,12 +13,12 @@ const getCollectionName = function(model) {
     }
 };
 
-const getPseudoModel = function(model) {
+const getPseudoModel = (model) => {
     if (!model) {
         throw new TransactionError(ERROR_TYPE.INVALID_COLLECTION);
     }
-    var key = getCollectionName(model);
-    var pseudoModel = CollectionPseudoModelMap[key];
+    let key = getCollectionName(model);
+    let pseudoModel = CollectionPseudoModelMap[key];
     if (!pseudoModel) {
         throw new TransactionError(ERROR_TYPE.INVALID_COLLECTION,
                                    {collection: key});
@@ -26,8 +26,7 @@ const getPseudoModel = function(model) {
     return pseudoModel;
 };
 
-const addCollectionPseudoModelPair = function(collectionName, connection,
-                                              schema) {
+const addCollectionPseudoModelPair = (collectionName, connection, schema) => {
     let shardKey;
     if (schema.options && schema.options.shardKey) {
         shardKey = Object.keys(schema.options.shardKey);
