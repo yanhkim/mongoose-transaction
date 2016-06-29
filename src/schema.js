@@ -80,9 +80,9 @@ TransactionSchema.attachShardKey = function(doc) {
 // * doc - :Document:
 TransactionSchema.statics.new =
 TransactionSchema.statics.begin = async function(callback) {
-    let self = this;
+    let TransactionModel = this;
     let promise = (async() => {
-        let transaction = new self();
+        let transaction = new TransactionModel();
         await transaction.begin();
         return transaction;
     })()
@@ -174,7 +174,7 @@ TransactionSchema.methods.add = async function (doc, callback) {
             return;
         }
         if (doc.t && !DEFINE.NULL_OBJECTID.equals(doc.t) &&
-                doc.t.toString() != self._id.toString()) {
+                doc.t.toString() !== self._id.toString()) {
             let hint = {collection: doc && ModelMap.getCollectionName(doc),
                         doc: doc && doc._id,
                         transaction: self};
@@ -215,7 +215,7 @@ TransactionSchema.methods.removeDoc = async function(doc, callback) {
     let self = this;
 
     let promise = (async() => {
-        let pseudoModel = ModelMap.getPseudoModel(doc);
+        ModelMap.getPseudoModel(doc);
         doc.isRemove = true;
         await self.add(doc);
     })();
@@ -257,7 +257,7 @@ TransactionSchema.methods._moveState = async function(prev, delta, callback) {
                 TransactionSchema.RAW_TRANSACTION_COLLECTION,
                 query, delta
         );
-        if (numberUpdated == 1) {
+        if (numberUpdated === 1) {
             return;
         }
         // if `findAndModify` return wrong result,
@@ -268,7 +268,7 @@ TransactionSchema.methods._moveState = async function(prev, delta, callback) {
         let updatedDoc = await helper.findOne(collection, modQuery);
         let state1 = delta.state || ((delta.$set || {}).state);
         let state2 = updatedDoc && updatedDoc.state;
-        if (state1 != state2) {
+        if (state1 !== state2) {
             throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
                                        {transaction: self, query: query});
         }
@@ -300,7 +300,7 @@ TransactionSchema.methods.commit = async function(callback) {
             let pseudoModel;
             try {
                 pseudoModel = ModelMap.getPseudoModel(history.col);
-            } catch(e) {
+            } catch (e) {
                 errors.push(e);
                 return;
             }
@@ -310,8 +310,8 @@ TransactionSchema.methods.commit = async function(callback) {
                 let col = pseudoModel.connection.collection(history.col);
                 try {
                     await helper.remove(col, query);
-                } catch(e) {
-                    errors.push(err);
+                } catch (e) {
+                    errors.push(e);
                 }
                 return;
             }
@@ -324,7 +324,7 @@ TransactionSchema.methods.commit = async function(callback) {
             try {
                 await atomic.releaseLock(pseudoModel.connection.db,
                                          history.col, query, op);
-            } catch(e) {
+            } catch (e) {
                 errors.push(e);
             }
         });
@@ -369,7 +369,7 @@ TransactionSchema.methods._makeHistory = async function(callback) {
             let err;
             try {
                 await helper.validate(doc);
-            } catch(e) {
+            } catch (e) {
                 err = e;
             }
             let history = {
@@ -438,12 +438,12 @@ TransactionSchema.methods._commit = async function(callback) {
     let self = this;
 
     let promise = (async() => {
-        if (self.state == 'commit') {
+        if (self.state === 'commit') {
             DEBUG('retry transaction commit', self._id);
             return;
         }
 
-        if (self.state == 'expire') {
+        if (self.state === 'expire') {
             DEBUG('transaction expired', self._id);
             throw new TransactionError(ERROR_TYPE.TRANSACTION_EXPIRED,
                                        {transaction: self})
@@ -470,14 +470,14 @@ TransactionSchema.methods._commit = async function(callback) {
         let history;
         try {
             history = await self._moveState('pending', delta);
-        } catch(e) {
+        } catch (e) {
             // this case only can db error or already expired
             self.state = undefined;
             await self.expire();
             throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR, hint);
         }
         if (!history) {
-            self._docs.forEach(function (doc) {
+            self._docs.forEach(function(doc) {
                 doc.emit('transactionAdded', self);
             });
         } else {
@@ -511,11 +511,11 @@ TransactionSchema.methods._expire = async function(callback) {
     DEBUG('transaction expired', self._id);
 
     let promise = (async() => {
-        if (self.state == 'expire') {
+        if (self.state === 'expire') {
             DEBUG('retry transaction expired', self._id);
             return;
         }
-        if (self.state == 'commit') {
+        if (self.state === 'commit') {
             DEBUG('transaction committed', self._id);
             return;
         }
@@ -560,7 +560,7 @@ TransactionSchema.methods.expire = async function(callback) {
             let pseudoModel;
             try {
                 pseudoModel = ModelMap.getPseudoModel(history.col);
-            } catch(e) {
+            } catch (e) {
                 errors.push(e);
                 return;
             }
@@ -571,8 +571,8 @@ TransactionSchema.methods.expire = async function(callback) {
                 let col = pseudoModel.connection.collection(history.col);
                 try {
                     await helper.remove(col, query);
-                } catch(e) {
-                    errors.push(err);
+                } catch (e) {
+                    errors.push(e);
                 }
                 return;
             }
@@ -581,8 +581,8 @@ TransactionSchema.methods.expire = async function(callback) {
                 await atomic.releaseLock(pseudoModel.connection.db,
                                          history.col, query,
                                          {$set: {t: DEFINE.NULL_OBJECTID}});
-            } catch(e) {
-                errors.push(err);
+            } catch (e) {
+                errors.push(e);
             }
         });
         await Promise.all(promises);
@@ -654,8 +654,7 @@ TransactionSchema.methods._postProcess = async function() {
     }
 };
 
-TransactionSchema.methods.convertQueryForAvoidConflict =
-        function getQueryForAvoidConflict(conditions) {
+TransactionSchema.methods.convertQueryForAvoidConflict = function(conditions) {
     conditions = conditions || {};
     conditions.$or = conditions.$or || [];
     conditions.$or = conditions.$or.concat([{t: DEFINE.NULL_OBJECTID},
@@ -684,7 +683,7 @@ TransactionSchema.methods.convertQueryForAvoidConflict =
 TransactionSchema.methods.find = async function(model, ...args) {
     let self = this;
     let callback;
-    if (typeof args[args.length - 1] == 'function') {
+    if (typeof args[args.length - 1] === 'function') {
         callback = args[args.length - 1];
         args.pop();
     }
@@ -696,7 +695,6 @@ TransactionSchema.methods.find = async function(model, ...args) {
     conditions.$or = conditions.$or || [];
     conditions.$or = conditions.$or.concat([{t: DEFINE.NULL_OBJECTID},
                                             {t: {$exists: false}}]);
-
 
     let promise = (async() => {
         let pseudoModel = ModelMap.getPseudoModel(model);
@@ -721,13 +719,12 @@ TransactionSchema.methods.find = async function(model, ...args) {
                     doc = await helper
                         .findOneAndUpdate(model, query, {$set: {t: self._id}},
                                           {new: true, fields: options.fields});
-                } catch(e) {
+                } catch (e) {
                     lastError = e;
                 };
                 if (doc) {
                     self._docs.push(doc);
                     locked.push(doc);
-                    //return doc;
                     return;
                 }
                 await utils.sleep(_.sample([37, 59, 139]));
@@ -737,7 +734,7 @@ TransactionSchema.methods.find = async function(model, ...args) {
                             ModelMap.getCollectionName(_doc),
                 doc: _doc && _doc._id,
                 query: query,
-                transaction: self
+                transaction: self,
             };
             lastError = lastError ||
                         new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
@@ -775,7 +772,7 @@ TransactionSchema.methods.find = async function(model, ...args) {
 TransactionSchema.methods.findOne = async function(model, ...args) {
     let self = this;
     let callback;
-    if (typeof args[args.length - 1] == 'function') {
+    if (typeof args[args.length - 1] === 'function') {
         callback = args[args.length - 1];
         args.pop();
     }
@@ -797,7 +794,6 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
         let query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
         let RETRY_LIMIT = 5;
-        let lastError;
         for (let i = 0; i < RETRY_LIMIT; i += 1) {
             let doc;
             try {
@@ -805,7 +801,8 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
                                                     {$set: {t: self._id}},
                                                     {new: true,
                                                      fields: options.fields});
-            } catch(e) {}
+            } catch (e) {}
+
             if (doc) {
                 self._docs.push(doc);
                 return doc;
@@ -814,7 +811,7 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
             // if t is not NULL_OBJECTID, try to go end of transaction process
             try {
                 await helper.findOne(model, query2);
-            } catch(e) {}
+            } catch (e) {}
 
             await utils.sleep(_.sample([37, 59, 139]));
         }

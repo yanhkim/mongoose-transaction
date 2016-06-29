@@ -70,7 +70,7 @@ let getShardKeyArray = function(shardKey) {
 // * 41 - cannot found update target document
 // * 42 - conflict another transaction; document locked
 // * 43 - conflict another transaction; transaction still alive
-const saveWithoutTransaction = async function(next, callback)  {
+const saveWithoutTransaction = async function(next, callback) {
     let self = this;
     if (self.isNew) {
         return next();
@@ -223,7 +223,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
     let transactionIdDocsMap = transactedDocs.map;
 
     let promise = (async() => {
-        for(let i = 0; i < transactionIds.length; i += 1) {
+        for (let i = 0; i < transactionIds.length; i += 1) {
             let transactionId = transactionIds[i];
             let query = {
                 _id: transactionId,
@@ -236,7 +236,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
                     .connection
                     .models[TransactionSchema.TRANSACTION_COLLECTION];
             let tr = await helper.findOne(Model, query);
-            if (tr && tr.state != 'done') {
+            if (tr && tr.state !== 'done') {
                 await tr._postProcess();
                 continue;
             }
@@ -291,7 +291,7 @@ const find = (proto, ignoreCallback) => {
         let callback;
         if (!ignoreCallback) {
             callback = args[args.length - 1];
-            if (!callback || typeof(callback) != 'function') {
+            if (!callback || typeof callback !== 'function') {
                 // using special case;
                 //   `Model.find({}).sort({}).exec(function() {})`
                 // FIXME: support this case
@@ -308,8 +308,6 @@ const find = (proto, ignoreCallback) => {
             }
 
             let RETRY_LIMIT = 10;
-            let retry = RETRY_LIMIT;
-
             for (let i = 0; i < RETRY_LIMIT; i += 1) {
                 let docs = await orig(...args);
                 if (!proto.isMultiple) {
@@ -375,7 +373,7 @@ const findWaitUnlock = function(proto) {
         let args = Array.prototype.slice.call(arguments);
         let callback = args[args.length - 1];
 
-        if (!callback || typeof(callback) != 'function') {
+        if (!callback || typeof callback !== 'function') {
             // using special case;
             //   `Model.find({}).sort({}).exec(function() {})`
             // FIXME: support this case
@@ -394,11 +392,10 @@ const findWaitUnlock = function(proto) {
             let RETRY_LIMIT = 5;
             let lastError;
             for (let i = 0; i < RETRY_LIMIT; i += 1) {
-                let docs;
                 try {
                     let docs = await _find(...args);
                     return docs;
-                } catch(e) {
+                } catch (e) {
                     lastError = e;
                 }
                 await utils.sleep(_.sample([37, 59, 139]));
@@ -465,8 +462,8 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
     });
 
     // syntactic sugar
-    ['', 'Force'].forEach(function (lock) {
-        model['findById' + lock] = function (...args) {
+    ['', 'Force'].forEach(function(lock) {
+        model['findById' + lock] = function(...args) {
             args[0] = {_id: args[0]};
             return this['findOne' + lock].apply(this, args);
         };
