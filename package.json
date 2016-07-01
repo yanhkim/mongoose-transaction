@@ -10,8 +10,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "synchronize": "",
-    "async": "",
     "underscore": "",
     "songbird": "",
     "babel-preset-stage-3": "*"
