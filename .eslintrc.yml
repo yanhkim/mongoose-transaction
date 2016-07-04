@@ -1,0 +1,25 @@
+extends: standard
+parser: babel-eslint
+plugins:
+    - standard
+env:
+    node: true
+rules:
+    semi: off
+    indent:
+        - error
+        - 4
+        -
+            SwitchCase: 1
+    space-before-function-paren:
+        - error
+        -
+            anonymous: never
+            named: never
+    max-len: ['error', 80]
+    linebreak-style: ['error', 'unix']
+    no-mixed-spaces-and-tabs: ['error', true]
+    comma-dangle: ['error', 'always-multiline']
+    generator-star-spacing: 0
+globals:
+    Exception: true

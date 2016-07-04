@@ -10,16 +10,22 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "synchronize": "",
-    "async": "",
-    "underscore": ""
+    "underscore": "",
+    "songbird": "",
+    "babel-cli": "^6.0.0",
+    "babel-core": "",
+    "babel-preset-es2015-without-regenerator": "",
+    "babel-preset-stage-3": "*"
   },
   "devDependencies": {
     "should": "",
     "mocha": "",
     "mongoose": "3.8.25"
   },
+  "main": "lib/index.js",
   "scripts": {
-      "test": "mocha test -t 10000"
+      "postinstall": "npm run build",
+      "build": "babel src --out-dir lib",
+      "test": "mocha --compilers js:babel-core/register -t 10000"
   }
 }
