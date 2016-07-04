@@ -6,7 +6,6 @@ const mongoose = require('mongoose');
 global.TRANSACTION_DEBUG_LOG = false;
 const transaction = require('../src/index');
 const DEFINE = require('../src/define');
-const helper = require('../src/helper');
 const utils = require('../src/utils');
 const ERRORS = DEFINE.ERROR_TYPE;
 
@@ -33,7 +32,7 @@ const TestSchema = new mongoose.Schema({
 }, {shardKey: {_id: 1}});
 
 const getNative = async function() {
-    return await helper.findOne(this.collection, {_id: this._id});
+    return await this.collection.promise.findOne({_id: this._id});
 };
 
 TestSchema.methods.getNative = getNative;
@@ -76,7 +75,7 @@ beforeEach(function(done) {
 
     let promise = (async() => {
         self.x = new Test({num: 1});
-        await helper.save(self.x);
+        await self.x.promise.save();
         self.t = await Transaction.begin();
     })();
     promise.then(done).catch(done);
@@ -96,25 +95,25 @@ describe('TransactedModel', function() {
 
     it('should have transaction lock at fetch document from database',
         async function() {
-            let doc = await helper.findById(Test, this.x._id);
+            let doc = await Test.promise.findById(this.x._id);
             doc.t.should.eql(transaction.NULL_OBJECTID);
         });
 
     it('should fetch lock and sharding fields if not exists at fetch targets',
         async function() {
-            let test = await helper.findById(Test, this.x._id, 'num');
+            let test = await Test.promise.findById(this.x._id, 'num');
             should.exists(test.t);
             should.exists(test._id);
         });
 
     it('result of toJSON should remove lock field', async function() {
-        let doc = await helper.findById(Test, this.x._id);
+        let doc = await Test.promise.findById(this.x._id);
         doc.toJSON().should.not.have.property('t');
     });
 
     it('can be try fetch non exist document', async function() {
         let id = new mongoose.Types.ObjectId();
-        let doc = await helper.findOne(Test, {_id: id});
+        let doc = await Test.promise.findOne({_id: id});
         should.not.exists(doc);
     });
 });
@@ -181,7 +180,7 @@ describe('Save with transaction', function() {
         let x = new Test({num: 1});
         await this.t.add(x);
         await this.t.remove();
-        let xs = await helper.find(Test, {_id: x._id});
+        let xs = await Test.promise.find({_id: x._id});
         should.exists(xs);
         xs.length.should.eql(0);
     });
@@ -216,7 +215,7 @@ describe('Find documents from model', function() {
         this.x.num = 2;
         await this.t.add(this.x);
         await this.t._commit();
-        let x1 = await helper.findById(Test, this.x.id);
+        let x1 = await Test.promise.findById(this.x.id);
         x1.t.should.eql(transaction.NULL_OBJECTID);
         x1.num.should.eql(2);
     });
@@ -227,11 +226,11 @@ describe('Find documents from model', function() {
             this.x.num = 2;
             await this.t.add(this.x);
             let y = new Test({num: 1});
-            await helper.save(y);
+            await y.promise.save();
             y.num = 2;
             await this.t.add(y);
             await this.t._commit();
-            let docs = await helper.find(Test, {});
+            let docs = await Test.promise.find({});
             should.exists(docs);
             docs.length.should.eql(2);
             docs.forEach((d) => {
@@ -243,9 +242,11 @@ describe('Find documents from model', function() {
     it('findById fetch a document, ' +
         'it should cancel removed previous transaction',
         async function() {
-            await helper.update(Test.collection, {_id: this.x._id},
-                    {$set: {t: new mongoose.Types.ObjectId()}});
-            let x1 = await helper.findById(Test, this.x._id);
+            await Test.collection.promise.update(
+                    {_id: this.x._id},
+                    {$set: {t: new mongoose.Types.ObjectId()}}
+            );
+            let x1 = await Test.promise.findById(this.x._id);
             should.exists(x1);
             x1.t.should.eql(transaction.NULL_OBJECTID);
         });
@@ -253,11 +254,13 @@ describe('Find documents from model', function() {
     it('find fetch all documents of matched, ' +
         'they should cancel removed previous transaction',
         async function() {
-            await helper.update(Test.collection, {_id: this.x._id},
-                    {$set: {t: new mongoose.Types.ObjectId()}});
+            await Test.collection.promise.update(
+                    {_id: this.x._id},
+                    {$set: {t: new mongoose.Types.ObjectId()}}
+            );
             let x2 = new Test({num: 2, t: new mongoose.Types.ObjectId()});
-            await helper.save(x2);
-            let xs = await helper.find(Test, {});
+            await x2.promise.save();
+            let xs = await Test.promise.find({});
             should.exists(xs);
             xs.length.should.eql(2);
             xs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
@@ -268,7 +271,7 @@ describe('Find documents from model', function() {
             await this.t.add(this.x);
             // var st = +new Date();
             try {
-                await helper.findOne(Test, {_id: this.x._id});
+                await Test.promise.findOne({_id: this.x._id});
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
@@ -280,8 +283,8 @@ describe('Find documents from model', function() {
         'it should cancel removed previous transaction',
         async function() {
             let x = new Test({num: 1, t: new mongoose.Types.ObjectId()});
-            await helper.save(x);
-            let x1 = await helper.findOneNative(Test, {_id: x._id});
+            await x.promise.save();
+            let x1 = await Test.promise.findOneNative({_id: x._id});
             should.exists(x1);
             x1.t.should.eql(transaction.NULL_OBJECTID);
         });
@@ -292,15 +295,15 @@ describe('Find documents from model', function() {
             let x1 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
             let x2 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
             await Promise.each([x1, x2], async(doc) => {
-                await helper.save(doc);
+                await doc.promise.save();
             });
-            let xs = await helper.findNative(Test, {});
+            let xs = await Test.promise.findNative({});
             should.exists(xs);
-            let count = await helper.count(xs);
+            let count = await xs.promise.count();
             should.exists(count);
             count.should.not.eql(0);
             xs.rewind();
-            let xs1 = await helper.toArray(xs);
+            let xs1 = await xs.promise.toArray();
             should.exists(xs1);
             xs1.length.should.eql(count);
             xs1.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
@@ -309,7 +312,7 @@ describe('Find documents from model', function() {
     it('can be force fetch document, ignoring transaction lock',
         async function() {
             await this.t.add(this.x);
-            let x1 = await helper.findOneForce(Test, {_id: this.x._id});
+            let x1 = await Test.promise.findOneForce({_id: this.x._id});
             should.exists(x1);
             x1.t.should.eql(this.t._id);
         });
@@ -358,8 +361,8 @@ describe('Find documents from transaction', function() {
         });
 
     it('Transaction.findOne should support sort option', async function() {
-        await helper.save(new Test());
-        await helper.save(new Test());
+        await (new Test()).promise.save();
+        await (new Test()).promise.save();
         let t1 = await this.t.findOne(Test, null, {sort: {'_id': 1}});
         should.exist(t1);
         let t2 = await this.t.findOne(Test, null, {sort: {'_id': -1}});
@@ -375,7 +378,7 @@ describe('Find documents from transaction', function() {
             this.x.num = 2;
             await this.t.add(this.x);
             let y = new Test({num: 1});
-            helper.save(y);
+            y.promise.save();
             y.num = 2;
             await this.t.add(y);
             await this.t._commit();
@@ -395,7 +398,7 @@ describe('Find documents from transaction', function() {
         'it should finish commit process of previous transaction',
         async function() {
             let x = new Test({num: 1, t: new mongoose.Types.ObjectId()});
-            await helper.save(x);
+            await x.promise.save();
             // t.findById(Test, x._id, sync.defer());
             let x1 = await this.t.findOne(Test, {_id: x._id});
             should.exists(x1);
@@ -410,7 +413,7 @@ describe('Find documents from transaction', function() {
             let x1 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
             let x2 = new Test({num: 2, t: new mongoose.Types.ObjectId()});
             await Promise.each([x1, x2], async(doc) => {
-                await helper.save(doc);
+                await doc.promise.save();
             });
             let xs = await this.t.find(Test, {});
             xs.length.should.eql(2);
@@ -436,7 +439,7 @@ describe('Transaction conflict', function() {
     it('above two transaction mark manage document mark at the same time',
         async function() {
             let t1 = await Transaction.begin();
-            let x1 = await helper.findById(Test, this.x.id);
+            let x1 = await Test.promise.findById(this.x.id);
             this.x.num = 2;
             await this.t.add(this.x);
             x1.num = 3;
@@ -450,12 +453,12 @@ describe('Transaction conflict', function() {
 
     it('already transacted document try save on another process',
         async function() {
-            let x1 = await helper.findById(Test, this.x.id);
+            let x1 = await Test.promise.findById(this.x.id);
             this.x.num = 2;
             await this.t.add(this.x);
             x1.num = 3;
             try {
-                await helper.save(x1);
+                await x1.promise.save();
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_1);
@@ -468,9 +471,9 @@ describe('Transaction conflict', function() {
 
     it('(normal)not transacted document try save on another process',
         async function() {
-            let x1 = await helper.findOne(Test, {_id: this.x._id});
+            let x1 = await Test.promise.findOne({_id: this.x._id});
             x1.num = 2;
-            await helper.save(x1);
+            await x1.promise.save();
             let x2 = await this.x.getNative();
             x2.t.should.eql(transaction.NULL_OBJECTID);
             x2.num.should.eql(2);
@@ -479,9 +482,9 @@ describe('Transaction conflict', function() {
     it.skip('(broken) we cannot care manually sequential update ' +
             'as fetched document without transaction', async function() {
         let x = new Test({num: 1});
-        await helper.save(x);
-        let x1 = await helper.findOne(Test, {_id: x._id});
-        let x2 = await helper.findOne(Test, {_id: x._id});
+        await x.promise.save();
+        let x1 = await Test.promise.findOne({_id: x._id});
+        let x2 = await Test.promise.findOne({_id: x._id});
         let t1 = await Transaction.begin();
         x1.num = 2;
         await t1.add(x1);
@@ -513,7 +516,7 @@ describe('Transaction lock', function() {
             this.x.num = 2;
             await this.t.add(this.x);
             try {
-                await helper.findById(Test, this.x.id);
+                await Test.promise.findById(this.x.id);
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
@@ -527,7 +530,7 @@ describe('Transaction lock', function() {
             await self.t.add(self.x);
 
             let promise1 = (async() => {
-                let x1 = await helper.findOne(Test, {_id: self.x._id});
+                let x1 = await Test.promise.findOne({_id: self.x._id});
                 should.exists(x1);
                 x1.t.should.eql(transaction.NULL_OBJECTID);
             })();
@@ -547,7 +550,7 @@ describe('Transaction lock', function() {
             await self.t.add(x);
 
             let promise1 = (async() => {
-                let x1 = await helper.findOne(Test, {_id: self.x._id});
+                let x1 = await Test.promise.findOne({_id: self.x._id});
                 should.exists(x1);
                 x1.t.should.eql(transaction.NULL_OBJECTID);
             })();
@@ -672,9 +675,9 @@ describe('Transaction state conflict', function() {
 
     it('if transaction expired for another process, cannot move commit state',
         async function() {
-            let t1 = await helper.findById(Transaction, this.t._id);
+            let t1 = await Transaction.promise.findById(this.t._id);
             t1.state = 'expire';
-            await helper.save(t1);
+            await t1.promise.save();
             try {
                 await this.t.commit();
                 should.fail('no error was thrown');
@@ -687,9 +690,9 @@ describe('Transaction state conflict', function() {
     it('if transaction committed for another process, ' +
         'cannot move expire state',
         async function() {
-            let t1 = await helper.findById(Transaction, this.t._id);
+            let t1 = await Transaction.promise.findById(this.t._id);
             t1.state = 'commit';
-            await helper.save(t1);
+            await t1.promise.save();
             try {
                 await this.t.expire();
                 should.fail('no error was thrown');
@@ -704,7 +707,7 @@ describe('Transaction state conflict', function() {
         async function() {
             await this.t.add(this.x);
             this.x.num = 3;
-            let t1 = await helper.findById(Transaction, this.t._id);
+            let t1 = await Transaction.promise.findById(this.t._id);
             t1._docs = [];
             let y = new Test({num: 2});
             await t1.add(y);

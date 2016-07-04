@@ -40,7 +40,6 @@ const mongooseutils = require('mongoose/lib/utils');
 const _ = require('underscore');
 const atomic = require('./atomic');
 const utils = require('./utils');
-const helper = require('./helper');
 const TransactionError = require('./error');
 const DEFINE = require('./define');
 const ModelMap = require('./modelmap');
@@ -123,7 +122,7 @@ TransactionSchema.methods.begin = async function(callback) {
     const promise = (async() => {
         DEBUG('transaction begin', this._id);
         TransactionSchema.attachShardKey(this);
-        await helper.save(this);
+        await this.promise.save();
     })();
 
     if (callback) {
@@ -160,12 +159,12 @@ TransactionSchema.methods.add = async function(doc, callback) {
         let pseudoModel = ModelMap.getPseudoModel(doc);
         TransactionSchema.attachShardKey(this);
 
-        await helper.validate(doc);
+        await doc.promise.validate();
         if (doc.isNew) {
             // create new document
             let data = {_id: doc._id, t: this._id, __new: true};
             utils.addShardKeyDatas(pseudoModel, doc, data);
-            await helper.insert(doc.collection, data);
+            await doc.collection.promise.insert(data);
             this._docs.push(doc);
             return;
         }
@@ -256,7 +255,7 @@ TransactionSchema.methods._moveState = async function(prev, delta) {
     let modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
     delete modQuery.state;
 
-    let updatedDoc = await helper.findOne(collection, modQuery);
+    let updatedDoc = await collection.promise.findOne(modQuery);
     let state1 = delta.state || ((delta.$set || {}).state);
     let state2 = updatedDoc && updatedDoc.state;
     if (state1 !== state2) {
@@ -292,7 +291,7 @@ TransactionSchema.methods.commit = async function(callback) {
             if (history.options && history.options.remove) {
                 let col = pseudoModel.connection.collection(history.col);
                 try {
-                    await helper.remove(col, query);
+                    await col.promise.remove(query);
                 } catch (e) {
                     errors.push(e);
                 }
@@ -318,7 +317,7 @@ TransactionSchema.methods.commit = async function(callback) {
             // TODO: cleanup batch
             return;
         }
-        await helper.remove(this.collection, {_id: this._id});
+        await this.collection.promise.remove({_id: this._id});
     })();
 
     if (callback) {
@@ -349,7 +348,7 @@ TransactionSchema.methods._makeHistory = async function() {
     let promises = this._docs.map(async(doc) => {
         let err;
         try {
-            await helper.validate(doc);
+            await doc.promise.validate();
         } catch (e) {
             err = e;
         }
@@ -519,7 +518,7 @@ TransactionSchema.methods.expire = async function(callback) {
             if (history.options && history.options.new) {
                 let col = pseudoModel.connection.collection(history.col);
                 try {
-                    await helper.remove(col, query);
+                    await col.promise.remove(query);
                 } catch (e) {
                     errors.push(e);
                 }
@@ -540,7 +539,7 @@ TransactionSchema.methods.expire = async function(callback) {
             // TODO: cleanup batch
             return;
         }
-        await helper.remove(this.collection, {_id: this._id});
+        await this.collection.promise.remove({_id: this._id});
     })();
 
     if (callback) {
@@ -646,8 +645,8 @@ TransactionSchema.methods.find = async function(model, ...args) {
     const promise = (async() => {
         let pseudoModel = ModelMap.getPseudoModel(model);
 
-        let cursor = await helper.find(model.collection, conditions, options);
-        let docs = await helper.toArray(cursor);
+        let cursor = await model.collection.promise.find(conditions, options);
+        let docs = await cursor.promise.toArray();
         if (!docs) {
             return;
         }
@@ -664,9 +663,10 @@ TransactionSchema.methods.find = async function(model, ...args) {
                 let doc;
                 let opt = {new: true, fields: options.fields};
                 try {
-                    doc = await helper.findOneAndUpdate(model, query,
-                                                        {$set: {t: this._id}},
-                                                        opt);
+                    let updateQuery = {$set: {t: this._id}};
+                    doc = await model.promise.findOneAndUpdate(query,
+                                                               updateQuery,
+                                                               opt);
                 } catch (e) {
                     lastError = e;
                 };
@@ -729,7 +729,7 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
 
     const promise = (async() => {
         let pseudoModel = ModelMap.getPseudoModel(model);
-        let _doc = await helper.findOne(model.collection, conditions, options);
+        let _doc = await model.collection.promise.findOne(conditions, options);
         if (!_doc) {
             return;
         }
@@ -743,10 +743,10 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
         for (let i = 0; i < RETRY_LIMIT; i += 1) {
             let doc;
             try {
-                doc = await helper.findOneAndUpdate(model, query1,
-                                                    {$set: {t: this._id}},
-                                                    {new: true,
-                                                     fields: options.fields});
+                let updateQuery = {$set: {t: this._id}};
+                let opt = {new: true, fields: options.fields};
+                doc = await model.promise.findOneAndUpdate(query1, updateQuery,
+                                                           opt);
             } catch (e) {}
 
             if (doc) {
@@ -756,7 +756,7 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
 
             // if t is not NULL_OBJECTID, try to go end of transaction process
             try {
-                await helper.findOne(model, query2);
+                await model.promise.findOne(query2);
             } catch (e) {}
 
             await utils.sleep(_.sample([37, 59, 139]));

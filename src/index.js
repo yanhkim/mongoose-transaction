@@ -13,7 +13,6 @@ const TransactionError = require('./error');
 const DEFINE = require('./define');
 const TransactionSchema = require('./schema');
 const ModelMap = require('./modelmap');
-const helper = require('./helper');
 const ERROR_TYPE = DEFINE.ERROR_TYPE;
 
 module.exports = {
@@ -76,7 +75,7 @@ const saveWithoutTransaction = async function(next, callback) {
     }
 
     const promise = (async() => {
-        await helper.validate(this);
+        await this.promise.validate();
         let delta = this.$__delta();
         if (!delta) {
             return;
@@ -179,7 +178,7 @@ const filterTransactedDocs = async (docs, callback) => {
         if (docs.nextObject) {
             let doc = true;
             while (doc) {
-                doc = await helper.nextObject(docs);
+                doc = await docs.promise.nextObject();
                 if (!doc) {
                     break;
                 }
@@ -234,7 +233,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
             let Model = transactionModel
                     .connection
                     .models[TransactionSchema.TRANSACTION_COLLECTION];
-            let tr = await helper.findOne(Model, query);
+            let tr = await Model.promise.findOne(query);
             if (tr && tr.state !== 'done') {
                 await tr._postProcess();
                 continue;
@@ -246,7 +245,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
                 let query = {_id: doc._id, t: doc.t};
                 utils.addShardKeyDatas(pseudoModel, doc, query);
                 if (doc.__new) {
-                    await helper.remove(model.collection, query);
+                    await model.collection.promise.remove(query);
                     return;
                 }
                 let updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};
@@ -284,7 +283,7 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
 // * 70 - Exceed retry limit
 // SeeAlso :Transaction._postProcess:
 const find = (proto, ignoreCallback) => {
-    let orig = helper.promisify(proto.target, proto.orig);
+    let orig = utils.promisify(proto.target, proto.orig);
     return async function() {
         let args = Array.prototype.slice.call(arguments);
         let callback;

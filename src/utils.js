@@ -223,6 +223,15 @@ const sleep = ((microsec, callback) => {
     setTimeout(callback, microsec);
 }).promise;
 
+const promisify = (obj, method) => {
+    if (typeof method === 'string') {
+        method = obj[method];
+    }
+    return ((...args) => {
+        method.apply(obj, args);
+    }).promise;
+}
+
 module.exports = {
     DEBUG: DEBUG,
     wrapMongoOp: wrapMongoOp,
@@ -233,5 +242,6 @@ module.exports = {
     addShardKeyDatas: addShardKeyDatas,
     removeShardKeySetData: removeShardKeySetData,
     sleep: sleep,
+    promisify: promisify,
 };
 // vim: et ts=5 sw=4 sts=4 colorcolumn=80
