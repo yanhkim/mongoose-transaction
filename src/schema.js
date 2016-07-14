@@ -345,6 +345,7 @@ TransactionSchema.methods._makeHistory = async function() {
         return errors;
     }
 
+    this._docs = this._docs || [];
     let promises = this._docs.map(async(doc) => {
         let err;
         try {
