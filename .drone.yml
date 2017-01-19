@@ -27,6 +27,8 @@ matrix:
         - 4.0.x
         - 4.2.x
         - 4.4.x
+        - 4.6.x
+        - 4.7.x
 
 notify:
     email:

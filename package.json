@@ -20,7 +20,7 @@
   "devDependencies": {
     "should": "",
     "mocha": "",
-    "mongoose": "3.8.25"
+    "mongoose": "4.7.7"
   },
   "main": "lib/index.js",
   "scripts": {

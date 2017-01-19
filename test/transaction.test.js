@@ -38,12 +38,14 @@ const getNative = async function() {
 TestSchema.methods.getNative = getNative;
 transaction.TransactionSchema.methods.getNative = getNative;
 
-before(async(done) => {
-    try {
-        await initialize.promise();
-    } catch (e) {
-        return done(e);
-    }
+const mochaAsync = (fn) => {
+    return (done) => {
+        fn.call().then(done).catch(done);
+    };
+};
+
+before(mochaAsync(async() => {
+    await initialize.promise();
 
     Test = transaction.TransactedModel(connection, 'Test', TestSchema);
     // FIXME: need init process
@@ -53,10 +55,7 @@ before(async(done) => {
             fields: {shard: {type: Number, required: true}},
             rule: {shard: 1, _id: 1},
             initialize: (doc) => {
-                doc.shard =
-                    doc.shard ||
-                    doc._id.getTimestamp()
-                    .getTime();
+                doc.shard = doc.shard || doc._id.getTimestamp().getTime();
             },
         }
     );
@@ -66,19 +65,10 @@ before(async(done) => {
         Transaction.collection.name, connection,
         transaction.TransactionSchema
     );
-    done();
-});
+}));
 
-beforeEach(function(done) {
-    var self = this;
-    self.timeout(10000);
-
-    let promise = (async() => {
-        self.x = new Test({num: 1});
-        await self.x.promise.save();
-        self.t = await Transaction.begin();
-    })();
-    promise.then(done).catch(done);
+beforeEach(function() {
+    this.timeout(10000);
 });
 
 afterEach((done) => {
@@ -88,360 +78,401 @@ afterEach((done) => {
     connection.db.dropDatabase(done);
 });
 
+const createTestSet = async() => {
+    const x = new Test({num: 1});
+    await x.promise.save();
+    const t = await Transaction.begin();
+    return [x, t];
+};
+
 describe('TransactedModel', function() {
-    it('should have transaction lock at create new doucment', function() {
-        this.x.t.should.eql(transaction.NULL_OBJECTID);
-    });
+    it('should have transaction lock at create new doucment',
+        mochaAsync(async() => {
+            const [x] = await createTestSet();
+            x.t.should.eql(transaction.NULL_OBJECTID);
+        }));
 
     it('should have transaction lock at fetch document from database',
-        async function() {
-            let doc = await Test.promise.findById(this.x._id);
+        mochaAsync(async function() {
+            const [x] = await createTestSet();
+            const doc = await Test.promise.findById(x._id);
             doc.t.should.eql(transaction.NULL_OBJECTID);
-        });
+        }));
 
     it('should fetch lock and sharding fields if not exists at fetch targets',
-        async function() {
-            let test = await Test.promise.findById(this.x._id, 'num');
+        mochaAsync(async function() {
+            const [x] = await createTestSet();
+            const test = await Test.promise.findById(x._id, 'num');
             should.exists(test.t);
             should.exists(test._id);
-        });
+        }));
 
-    it('result of toJSON should remove lock field', async function() {
-        let doc = await Test.promise.findById(this.x._id);
-        doc.toJSON().should.not.have.property('t');
-    });
+    it('result of toJSON should remove lock field',
+        mochaAsync(async function() {
+            const [x] = await createTestSet();
+            const doc = await Test.promise.findById(x._id);
+            doc.toJSON().should.not.have.property('t');
+        }));
 
-    it('can be try fetch non exist document', async function() {
-        let id = new mongoose.Types.ObjectId();
-        let doc = await Test.promise.findOne({_id: id});
+    it('can be try fetch non exist document', mochaAsync(async function() {
+        const id = new mongoose.Types.ObjectId();
+        const doc = await Test.promise.findOne({_id: id});
         should.not.exists(doc);
-    });
+    }));
 });
 
 describe('Save with transaction', function() {
-    it('transaction add should check validate schema', async function() {
-        this.x.num = 10;
-        try {
-            await this.t.add(this.x);
-            should.fail('no error was thrown');
-        } catch (e) {
-            e.name.should.eql('ValidationError');
-        }
-    });
+    it('transaction add should check validate schema',
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            x.num = 10;
+            try {
+                await t.add(x);
+                should.fail('no error was thrown');
+            } catch (e) {
+                e.name.should.eql('ValidationError');
+            }
+        }));
 
-    it('update can be possible', async function() {
-        this.x.num = 2;
-        await this.t.add(this.x);
-        let x1 = await this.x.getNative();
-        this.t._id.should.eql(x1.t);
+    it('update can be possible', mochaAsync(async function() {
+        const [x, t] = await createTestSet();
+        x.num = 2;
+        await t.add(x);
+        const x1 = await x.getNative();
+        t._id.should.eql(x1.t);
         x1.num.should.eql(1);
         x1.def.should.eql(1);
-        await this.t.commit();
-        let x2 = await this.x.getNative();
+        await t.commit();
+        const x2 = await x.getNative();
         x2.t.should.eql(transaction.NULL_OBJECTID);
         x2.num.should.eql(2);
-        should.not.exists(await this.t.getNative());
-    });
+        should.not.exists(await t.getNative());
+    }));
 
-    it('can make new document', async function() {
-        let x = new Test({num: 1});
-        await this.t.add(x);
-        let x1 = await x.getNative();
-        this.t._id.should.eql(x1.t);
+    it('can make new document', mochaAsync(async function() {
+        const [, t] = await createTestSet();
+        const x = new Test({num: 1});
+        await t.add(x);
+        const x1 = await x.getNative();
+        t._id.should.eql(x1.t);
         should.not.exist(x1.num);
         x1.__new.should.eql(true);
-        await this.t.commit();
-        let x2 = await x.getNative();
+        await t.commit();
+        const x2 = await x.getNative();
         x2.t.should.eql(transaction.NULL_OBJECTID);
         x2.num.should.eql(1);
         x2.def.should.eql(1);
         should.not.exists(x2.__new);
-        should.not.exists(await this.t.getNative());
-    });
+        should.not.exists(await t.getNative());
+    }));
 
     it('if cancel transaction process and contains new documents, ' +
         'should cancel make new documents',
-        async function() {
-            let x = new Test({num: 1});
-            await this.t.add(x);
-            let x1 = await x.getNative();
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            const x = new Test({num: 1});
+            await t.add(x);
+            const x1 = await x.getNative();
             should.exists(x1);
-            this.t._id.should.eql(x1.t);
+            t._id.should.eql(x1.t);
             should.not.exist(x1.num);
             try {
-                await this.t.cancel('testcase');
+                await t.cancel('testcase');
             } catch (e) {}
             should.not.exists(await x.getNative());
-            should.not.exists(await this.t.getNative());
-        });
+            should.not.exists(await t.getNative());
+        }));
 
     it('if stop in the middle of transaction process,' +
-            'should cancel make new documents', async function() {
-        let x = new Test({num: 1});
-        await this.t.add(x);
-        await this.t.remove();
-        let xs = await Test.promise.find({_id: x._id});
-        should.exists(xs);
-        xs.length.should.eql(0);
-    });
+            'should cancel make new documents',
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            const x = new Test({num: 1});
+            await t.add(x);
+            await t.remove();
+            const xs = await Test.promise.find({_id: x._id});
+            should.exists(xs);
+            xs.length.should.eql(0);
+        }));
 
-    it('should support multiple documents with transaction', async function() {
-        this.x.num = 2;
-        await this.t.add(this.x);
-        let y = new Test({string: 'abcd'});
-        await this.t.add(y);
-        await this.t.commit();
-        (await this.x.getNative()).num.should.eql(2);
-        (await y.getNative()).string.should.eql('abcd');
-        should.not.exists(await this.t.getNative());
-    });
+    it('should support multiple documents with transaction',
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            x.num = 2;
+            await t.add(x);
+            const y = new Test({string: 'abcd'});
+            await t.add(y);
+            await t.commit();
+            (await x.getNative()).num.should.eql(2);
+            (await y.getNative()).string.should.eql('abcd');
+            should.not.exists(await t.getNative());
+        }));
 
-    it('should support remove document with transaction', async function() {
-        await this.t.removeDoc(this.x);
-        await this.t.commit();
-        should.not.exists(await this.x.getNative());
-    });
+    it('should support remove document with transaction',
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            await t.removeDoc(x);
+            await t.commit();
+            should.not.exists(await x.getNative());
+        }));
 
     it('if cancel transaction process, also cancel reserved remove document',
-        async function() {
-            await this.t.removeDoc(this.x);
-            await this.t.expire();
-            should.exists(await this.x.getNative());
-        });
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            await t.removeDoc(x);
+            await t.expire();
+            should.exists(await x.getNative());
+        }));
 });
 
 describe('Find documents from model', function() {
-    it('auto commit before load data', async function() {
-        this.x.num = 2;
-        await this.t.add(this.x);
-        await this.t._commit();
-        let x1 = await Test.promise.findById(this.x.id);
+    it('auto commit before load data', mochaAsync(async function() {
+        const [x, t] = await createTestSet();
+        x.num = 2;
+        await t.add(x);
+        await t._commit();
+        const x1 = await Test.promise.findById(x.id);
         x1.t.should.eql(transaction.NULL_OBJECTID);
         x1.num.should.eql(2);
-    });
+    }));
 
     it('find fetch all documents of matched, ' +
         'they should finish commit process of previous transaction',
-        async function() {
-            this.x.num = 2;
-            await this.t.add(this.x);
-            let y = new Test({num: 1});
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            x.num = 2;
+            await t.add(x);
+            const y = new Test({num: 1});
             await y.promise.save();
             y.num = 2;
-            await this.t.add(y);
-            await this.t._commit();
-            let docs = await Test.promise.find({});
+            await t.add(y);
+            await t._commit();
+            const docs = await Test.promise.find({});
             should.exists(docs);
             docs.length.should.eql(2);
             docs.forEach((d) => {
                 d.t.should.eql(transaction.NULL_OBJECTID);
                 d.num.should.eql(2);
             });
-        });
+        }));
 
     it('findById fetch a document, ' +
         'it should cancel removed previous transaction',
-        async function() {
+        mochaAsync(async function() {
+            const [x] = await createTestSet();
             await Test.collection.promise.update(
-                    {_id: this.x._id},
+                    {_id: x._id},
                     {$set: {t: new mongoose.Types.ObjectId()}}
             );
-            let x1 = await Test.promise.findById(this.x._id);
+            const x1 = await Test.promise.findById(x._id);
             should.exists(x1);
             x1.t.should.eql(transaction.NULL_OBJECTID);
-        });
+        }));
 
     it('find fetch all documents of matched, ' +
         'they should cancel removed previous transaction',
-        async function() {
+        mochaAsync(async function() {
+            const [x] = await createTestSet();
             await Test.collection.promise.update(
-                    {_id: this.x._id},
+                    {_id: x._id},
                     {$set: {t: new mongoose.Types.ObjectId()}}
             );
-            let x2 = new Test({num: 2, t: new mongoose.Types.ObjectId()});
+            const x2 = new Test({num: 2, t: new mongoose.Types.ObjectId()});
             await x2.promise.save();
-            let xs = await Test.promise.find({});
+            const xs = await Test.promise.find({});
             should.exists(xs);
             xs.length.should.eql(2);
             xs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
-        });
+        }));
 
     it('findOne should wait previous transaction lock',
-        async function() {
-            await this.t.add(this.x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            await t.add(x);
             // var st = +new Date();
             try {
-                await Test.promise.findOne({_id: this.x._id});
+                await Test.promise.findOne({_id: x._id});
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
             // ((+new Date()) - st >= 37 * 5).should.be.true;
-        });
+        }));
 
     it('findOneNatvie fetch a native mongo document of matched, ' +
         'it should cancel removed previous transaction',
-        async function() {
-            let x = new Test({num: 1, t: new mongoose.Types.ObjectId()});
+        mochaAsync(async function() {
+            const x = new Test({num: 1, t: new mongoose.Types.ObjectId()});
             await x.promise.save();
-            let x1 = await Test.promise.findOneNative({_id: x._id});
+            const x1 = await Test.promise.findOneNative({_id: x._id});
             should.exists(x1);
             x1.t.should.eql(transaction.NULL_OBJECTID);
-        });
+        }));
 
     it('findNatvie fetch all native mongo documents of matched, ' +
         'they should cancel removed previous transaction',
-        async function() {
-            let x1 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
-            let x2 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
+        mochaAsync(async function() {
+            const x1 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
+            const x2 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
             await Promise.each([x1, x2], async(doc) => {
                 await doc.promise.save();
             });
-            let xs = await Test.promise.findNative({});
+            const xs = await Test.promise.findNative({});
             should.exists(xs);
-            let count = await xs.promise.count();
+            const count = await xs.promise.count();
             should.exists(count);
             count.should.not.eql(0);
             xs.rewind();
-            let xs1 = await xs.promise.toArray();
+            const xs1 = await xs.promise.toArray();
             should.exists(xs1);
             xs1.length.should.eql(count);
             xs1.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
-        });
+        }));
 
     it('can be force fetch document, ignoring transaction lock',
-        async function() {
-            await this.t.add(this.x);
-            let x1 = await Test.promise.findOneForce({_id: this.x._id});
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            await t.add(x);
+            const x1 = await Test.promise.findOneForce({_id: x._id});
             should.exists(x1);
-            x1.t.should.eql(this.t._id);
-        });
+            x1.t.should.eql(t._id);
+        }));
 });
 
 describe('Find documents from transaction', function() {
     it('findOne fetch a document and automatic set transaction lock',
-        async function() {
-            let x1 = await this.t.findOne(Test, {_id: this.x._id});
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const x1 = await t.findOne(Test, {_id: x._id});
             should.exist(x1);
             x1.t.should.not.eql(transaction.NULL_OBJECTID);
             should.exist(x1.t);
             x1.num = 2;
-            await this.t.commit();
-            (await this.x.getNative()).num.should.eql(2);
-        });
+            await t.commit();
+            (await x.getNative()).num.should.eql(2);
+        }));
 
     // FIXME: findOne muse try to remove `t`
     xit('findOne fetch a document of matched, ' +
         'it should finish commit process of previous transaction',
-        async function() {
-            this.x.num = 2;
-            await this.t.add(this.x);
-            await this.t._commit();
-            let t2 = await Transaction.begin();
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            x.num = 2;
+            await t.add(x);
+            await t._commit();
+            const t2 = await Transaction.begin();
             // FIXME: make TransactionSchema.findById
             // t2.findById(Test, x.id, sync.defer());
-            let x1 = await t2.findOne(Test, {_id: this.x._id});
+            const x1 = await t2.findOne(Test, {_id: x._id});
             should.exists(x1);
             x1.t.should.eql(transaction.NULL_OBJECTID);
             x1.num.should.eql(2);
-        });
+        }));
 
     it('find fetch documents and automatic set transaction lock',
-        async function() {
-            let docs = await this.t.find(Test, {_id: this.x._id});
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const docs = await t.find(Test, {_id: x._id});
             should.exist(docs);
             Array.isArray(docs).should.be.true;
             docs.length.should.be.eql(1);
-            let x1 = docs[0];
+            const x1 = docs[0];
             x1.t.should.not.eql(transaction.NULL_OBJECTID);
             should.exist(x1.t);
             x1.num = 2;
-            await this.t.commit();
-            (await this.x.getNative()).num.should.eql(2);
-        });
+            await t.commit();
+            (await x.getNative()).num.should.eql(2);
+        }));
 
-    it('Transaction.findOne should support sort option', async function() {
-        await (new Test()).promise.save();
-        await (new Test()).promise.save();
-        let t1 = await this.t.findOne(Test, null, {sort: {'_id': 1}});
-        should.exist(t1);
-        let t2 = await this.t.findOne(Test, null, {sort: {'_id': -1}});
-        should.exist(t2);
-        t1._id.should.not.eql(t2._id);
-    });
+    it('Transaction.findOne should support sort option',
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            await (new Test()).promise.save();
+            await (new Test()).promise.save();
+            const t1 = await t.findOne(Test, null, {sort: {'_id': 1}});
+            should.exist(t1);
+            const t2 = await t.findOne(Test, null, {sort: {'_id': -1}});
+            should.exist(t2);
+            t1._id.should.not.eql(t2._id);
+        }));
 
     // FIXME: current find only check t is `NULL_OBJECTID`
     // so, docs.length is always return 0
     xit('find fetch all documents of matched, ' +
         'they should finish commit process of previous transaction',
-        async function() {
-            this.x.num = 2;
-            await this.t.add(this.x);
-            let y = new Test({num: 1});
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            x.num = 2;
+            await t.add(x);
+            const y = new Test({num: 1});
             y.promise.save();
             y.num = 2;
-            await this.t.add(y);
-            await this.t._commit();
-            let t2 = await Transaction.begin();
-            let docs = await t2.find(Test, {});
+            await t.add(y);
+            await t._commit();
+            const t2 = await Transaction.begin();
+            const docs = await t2.find(Test, {});
             should.exists(docs);
             docs.length.should.eql(2);
             docs.forEach((d) => {
                 d.t.should.eql(transaction.NULL_OBJECTID);
                 d.num.should.eql(2);
             });
-        });
+        }));
 
     // FIXME: current findOne not try post process, fail document fetch
     // also, we need test of document exist
     xit('findOne fetch a document of matched, ' +
         'it should finish commit process of previous transaction',
-        async function() {
-            let x = new Test({num: 1, t: new mongoose.Types.ObjectId()});
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            const x = new Test({num: 1, t: new mongoose.Types.ObjectId()});
             await x.promise.save();
             // t.findById(Test, x._id, sync.defer());
-            let x1 = await this.t.findOne(Test, {_id: x._id});
+            const x1 = await t.findOne(Test, {_id: x._id});
             should.exists(x1);
-            x1.t.should.eql(this.t._id);
-        });
+            x1.t.should.eql(t._id);
+        }));
 
     // FIXME: current find only check t is `NULL_OBJECTID`
     // so, docs.length is always return 0
     xit('find fetch all documents of matched, ' +
         'they should cancel removed previous transaction',
-        async function() {
-            let x1 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
-            let x2 = new Test({num: 2, t: new mongoose.Types.ObjectId()});
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            const x1 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
+            const x2 = new Test({num: 2, t: new mongoose.Types.ObjectId()});
             await Promise.each([x1, x2], async(doc) => {
                 await doc.promise.save();
             });
-            let xs = await this.t.find(Test, {});
+            const xs = await t.find(Test, {});
             xs.length.should.eql(2);
             xs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
-        });
+        }));
 
     it('find fetch documents and automatic set transaction lock',
-        async function() {
-            let docs = await this.t.find(Test, {_id: this.x._id});
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const docs = await t.find(Test, {_id: x._id});
             should.exist(docs);
             Array.isArray(docs).should.be.true;
             docs.length.should.be.eql(1);
-            let x1 = docs[0];
+            const x1 = docs[0];
             x1.t.should.not.eql(transaction.NULL_OBJECTID);
             should.exist(x1.t);
             x1.num = 2;
-            await this.t.commit();
-            (await this.x.getNative()).num.should.eql(2);
-        });
+            await t.commit();
+            (await x.getNative()).num.should.eql(2);
+        }));
 });
 
 describe('Transaction conflict', function() {
     it('above two transaction mark manage document mark at the same time',
-        async function() {
-            let t1 = await Transaction.begin();
-            let x1 = await Test.promise.findById(this.x.id);
-            this.x.num = 2;
-            await this.t.add(this.x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const t1 = await Transaction.begin();
+            const x1 = await Test.promise.findById(x.id);
+            x.num = 2;
+            await t.add(x);
             x1.num = 3;
             try {
                 await t1.add(x1);
@@ -449,13 +480,14 @@ describe('Transaction conflict', function() {
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_1);
             }
-        });
+        }));
 
     it('already transacted document try save on another process',
-        async function() {
-            let x1 = await Test.promise.findById(this.x.id);
-            this.x.num = 2;
-            await this.t.add(this.x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const x1 = await Test.promise.findById(x.id);
+            x.num = 2;
+            await t.add(x);
             x1.num = 3;
             try {
                 await x1.promise.save();
@@ -463,184 +495,190 @@ describe('Transaction conflict', function() {
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_1);
             }
-            await this.t.commit();
-            let x2 = await this.x.getNative();
+            await t.commit();
+            const x2 = await x.getNative();
             x2.t.should.eql(transaction.NULL_OBJECTID);
             x2.num.should.eql(2);
-        });
+        }));
 
     it('(normal)not transacted document try save on another process',
-        async function() {
-            let x1 = await Test.promise.findOne({_id: this.x._id});
+        mochaAsync(async function() {
+            const [x] = await createTestSet();
+            const x1 = await Test.promise.findOne({_id: x._id});
             x1.num = 2;
             await x1.promise.save();
-            let x2 = await this.x.getNative();
+            const x2 = await x.getNative();
             x2.t.should.eql(transaction.NULL_OBJECTID);
             x2.num.should.eql(2);
-        });
+        }));
 
     it.skip('(broken) we cannot care manually sequential update ' +
-            'as fetched document without transaction', async function() {
-        let x = new Test({num: 1});
-        await x.promise.save();
-        let x1 = await Test.promise.findOne({_id: x._id});
-        let x2 = await Test.promise.findOne({_id: x._id});
-        let t1 = await Transaction.begin();
-        x1.num = 2;
-        await t1.add(x1);
-        await t1.commit();
-        let t2 = await Transaction.begin();
-        x2.num = 3;
-        await t2.add(x2);
-        should.fail('no error was thrown');
-        await t2.commit();
-    });
+            'as fetched document without transaction',
+        mochaAsync(async function() {
+            const x = new Test({num: 1});
+            await x.promise.save();
+            const x1 = await Test.promise.findOne({_id: x._id});
+            const x2 = await Test.promise.findOne({_id: x._id});
+            const t1 = await Transaction.begin();
+            x1.num = 2;
+            await t1.add(x1);
+            await t1.commit();
+            const t2 = await Transaction.begin();
+            x2.num = 3;
+            await t2.add(x2);
+            should.fail('no error was thrown');
+            await t2.commit();
+        }));
 
     it('findOne from transaction prevent race condition when fetch a document',
-        async function() {
-            let x1 = await this.t.findOne(Test, {_id: this.x._id});
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const x1 = await t.findOne(Test, {_id: x._id});
             should.exist(x1);
             x1.t.should.not.eql(transaction.NULL_OBJECTID);
             try {
-                await this.t.findOne(Test, {_id: this.x._id});
+                await t.findOne(Test, {_id: x._id});
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
-        });
+        }));
 });
 
 describe('Transaction lock', function() {
     it('model.findById should raise error at try fetch to locked document',
-        async function() {
-            this.x.num = 2;
-            await this.t.add(this.x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            x.num = 2;
+            await t.add(x);
             try {
-                await Test.promise.findById(this.x.id);
+                await Test.promise.findById(x.id);
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
-        });
+        }));
 
     // FIXME: wait lock feature should be default option of findOne
     xit('model.findOne should wait unlock previous transaction lock',
-        async function() {
-            let self = this;
-            await self.t.add(self.x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            await t.add(x);
 
-            let promise1 = (async() => {
-                let x1 = await Test.promise.findOne({_id: self.x._id});
+            const promise1 = (async() => {
+                const x1 = await Test.promise.findOne({_id: x._id});
                 should.exists(x1);
                 x1.t.should.eql(transaction.NULL_OBJECTID);
             })();
-            let promise2 = (async() => {
+            const promise2 = (async() => {
                 await utils.sleep(100);
-                await self.t.commit();
+                await t.commit();
             })();
 
             await Promise.all([promise1, promise2]);
-        });
+        }));
 
     it('model.findOne should wait ' +
         'unlock previous transaction lock',
-        async function() {
-            let self = this;
-            let x = new Test({num: 1, t: new mongoose.Types.ObjectId()});
-            await self.t.add(x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const x1 = new Test({num: 1, t: new mongoose.Types.ObjectId()});
+            await t.add(x1);
 
-            let promise1 = (async() => {
-                let x1 = await Test.promise.findOne({_id: self.x._id});
-                should.exists(x1);
-                x1.t.should.eql(transaction.NULL_OBJECTID);
+            const promise1 = (async() => {
+                const x2 = await Test.promise.findOne({_id: x._id});
+                should.exists(x2);
+                x2.t.should.eql(transaction.NULL_OBJECTID);
             })();
 
-            let promise2 = (async() => {
+            const promise2 = (async() => {
                 await utils.sleep(100);
-                await self.t.commit();
+                await t.commit();
             })();
             await Promise.all([promise1, promise2]);
-        });
+        }));
 
     // FIXME: current findOne not try post process, fail document fetch
     // also, we need test of document exist
     xit('transaction.findOne should raise error ' +
         'at try fetch to locked document',
-        async function() {
-            this.x.num = 2;
-            await this.t.add(this.x);
-            let t1 = await Transaction.begin();
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            x.num = 2;
+            await t.add(x);
+            const t1 = await Transaction.begin();
             try {
-                await t1.findOne(Test, {_id: this.x.id});
+                await t1.findOne(Test, {_id: x.id});
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
-        });
+        }));
 
     it('transaction.findOne should raise error ' +
         'at try fetch to locked document ' +
         'and previous transaction was alive',
-        async function() {
-            await this.t.add(this.x);
-            let t1 = await Transaction.begin();
-            // let st = +new Date();
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            await t.add(x);
+            const t1 = await Transaction.begin();
+            // const st = +new Date();
             try {
-                await t1.findOne(Test, {_id: this.x._id});
+                await t1.findOne(Test, {_id: x._id});
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
             // ((+new Date()) - st >= 37 * 5).should.be.true;
-        });
+        }));
 
     it('transaction.findOne should wait unlock previous transaction lock',
-        async function() {
-            var self = this;
-            let t1 = await Transaction.begin();
-            await self.t.add(self.x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const t1 = await Transaction.begin();
+            await t.add(x);
 
-            let promise1 = (async() => {
-                let x1 = await t1.findOne(Test, {_id: self.x._id});
+            const promise1 = (async() => {
+                const x1 = await t1.findOne(Test, {_id: x._id});
                 should.exists(x1);
                 x1.t.should.eql(t1._id);
             })();
-            let promise2 = (async() => {
+            const promise2 = (async() => {
                 await utils.sleep(100);
-                await self.t.commit();
+                await t.commit();
             })();
             await Promise.all([promise1, promise2]);
-        });
+        }));
 
     // FIXME: wait lock feature should be default option of findOne
     xit('transaction.findOne should wait unlock previous transaction lock',
-        async function() {
-            let self = this;
-            let t1 = await Transaction.begin();
-            await self.t.add(self.x);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            const t1 = await Transaction.begin();
+            await t.add(x);
 
-            let promise1 = (async() => {
-                let x1 = await t1.findOne(Test, {_id: self.x._id});
+            const promise1 = (async() => {
+                const x1 = await t1.findOne(Test, {_id: x._id});
                 should.exists(x1);
                 x1.t.should.eql(transaction.NULL_OBJECTID);
             })();
-            let promise2 = (async() => {
+            const promise2 = (async() => {
                 await utils.sleep(100);
-                await self.t.commit();
+                await t.commit();
             })();
 
             await Promise.all([promise1, promise2]);
-        });
+        }));
 
     it('overtime transaction should expire automatically',
-        async function() {
-            let beforeGap =
+        mochaAsync(async function() {
+            const beforeGap =
                 +new Date() - transaction.TRANSACTION_EXPIRE_GAP;
-            let t = new Transaction({
+            const t = new Transaction({
                 _id: mongoose.Types.ObjectId.createFromTime(beforeGap),
             });
             //            wrapTransactionMethods(t);
-            let x = new Test({num: 1});
+            const x = new Test({num: 1});
             await t.begin();
             await t.add(x);
             try {
@@ -650,98 +688,104 @@ describe('Transaction lock', function() {
                 e.message.should.eql(ERRORS.TRANSACTION_EXPIRED);
             }
             should.not.exists(await x.getNative());
-        });
+        }));
 });
 
 describe('Transaction state conflict', function() {
     it('already committed transaction cannot move expire state',
-        async function() {
-            await this.t._commit();
-            await this.t.expire();
-            this.t.state.should.eql('commit');
-        });
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            await t._commit();
+            await t.expire();
+            t.state.should.eql('commit');
+        }));
 
     it('already expired transaction cannot move commit state',
-        async function() {
-            await this.t._expire();
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            await t._expire();
             try {
-                await this.t.commit();
+                await t.commit();
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_EXPIRED);
             }
-            this.t.state.should.eql('expire');
-        });
+            t.state.should.eql('expire');
+        }));
 
     it('if transaction expired for another process, cannot move commit state',
-        async function() {
-            let t1 = await Transaction.promise.findById(this.t._id);
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            const t1 = await Transaction.promise.findById(t._id);
             t1.state = 'expire';
             await t1.promise.save();
             try {
-                await this.t.commit();
+                await t.commit();
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.UNKNOWN_COMMIT_ERROR);
             }
-            this.t.state.should.eql('expire');
-        });
+            t.state.should.eql('expire');
+        }));
 
     it('if transaction committed for another process, ' +
         'cannot move expire state',
-        async function() {
-            let t1 = await Transaction.promise.findById(this.t._id);
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            const t1 = await Transaction.promise.findById(t._id);
             t1.state = 'commit';
             await t1.promise.save();
             try {
-                await this.t.expire();
+                await t.expire();
                 should.fail('no error was thrown');
             } catch (e) {
                 e.message.should.eql(ERRORS.SOMETHING_WRONG);
             }
-            this.t.state.should.eql('expire');
-        });
+            t.state.should.eql('expire');
+        }));
 
     it('if transaction committed for another process' +
         'we use persistent data of mongodb',
-        async function() {
-            await this.t.add(this.x);
-            this.x.num = 3;
-            let t1 = await Transaction.promise.findById(this.t._id);
+        mochaAsync(async function() {
+            const [x, t] = await createTestSet();
+            await t.add(x);
+            x.num = 3;
+            const t1 = await Transaction.promise.findById(t._id);
             t1._docs = [];
-            let y = new Test({num: 2});
+            const y = new Test({num: 2});
             await t1.add(y);
             await t1._commit();
-            await this.t.commit();
-            let x1 = await this.x.getNative();
+            await t.commit();
+            const x1 = await x.getNative();
             should.exists(x1);
             x1.t.should.not.eql(transaction.NULL_OBJECTID);
             x1.num.should.eql(1);
-            let y1 = await y.getNative();
+            const y1 = await y.getNative();
             should.exists(y1);
             y1.t.should.eql(transaction.NULL_OBJECTID);
             y1.num.should.eql(2);
-        });
+        }));
 
     it('if mongodb raise error when transaction commit, ' +
-        'automatically move to expire state', async function() {
-        let self = this;
-        let save = self.t._moveState;
-        let called = false;
-        self.t._moveState = async function(_, __) {
-            if (!called) {
-                called = true;
-                throw new Error('something wrong');
+            'automatically move to expire state',
+        mochaAsync(async function() {
+            const [, t] = await createTestSet();
+            const save = t._moveState;
+            let called = false;
+            t._moveState = async function(_, __) {
+                if (!called) {
+                    called = true;
+                    throw new Error('something wrong');
+                }
+                return save.apply(t, arguments);
+            };
+            try {
+                await t.commit();
+                should.fail('no error was thrown');
+            } catch (e) {
+                e.message.should.eql(ERRORS.UNKNOWN_COMMIT_ERROR);
             }
-            return save.apply(self.t, arguments);
-        };
-        try {
-            await self.t.commit();
-            should.fail('no error was thrown');
-        } catch (e) {
-            e.message.should.eql(ERRORS.UNKNOWN_COMMIT_ERROR);
-        }
-        self.t.state.should.eql('expire');
-    });
+            t.state.should.eql('expire');
+        }));
 });
 // vim: et ts=4 sw=4 sts=4 colorcolumn=80
