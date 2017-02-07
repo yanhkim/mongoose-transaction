@@ -6,6 +6,8 @@
 'use strict';
 const Promise = require('songbird');
 const mongoose = require('mongoose');
+mongoose.Promise = Promise;
+
 const _ = require('underscore');
 const utils = require('./utils');
 const atomic = require('./atomic');
