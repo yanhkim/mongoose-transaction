@@ -31,9 +31,23 @@ const addCollectionPseudoModelPair = (collectionName, connection, schema) => {
     if (schema.options && schema.options.shardKey) {
         shardKey = Object.keys(schema.options.shardKey);
     }
+    const uniqueKey = [];
+    schema.indexes().forEach((index) => {
+        const [idx, opt] = index;
+        if (!opt || !opt.unique) {
+            return;
+        }
+        Object.keys(idx).forEach((k) => {
+            if (uniqueKey.indexOf(k) !== -1) {
+                return;
+            }
+            uniqueKey.push(k);
+        });
+    });
     CollectionPseudoModelMap[collectionName] = {
         connection: connection,
         shardKey: shardKey,
+        uniqueKey: uniqueKey,
     };
 };
 

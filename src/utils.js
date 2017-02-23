@@ -204,6 +204,14 @@ const addShardKeyDatas = function(pseudoModel, src, dest) {
     pseudoModel.shardKey.forEach(function(sk) { dest[sk] = src[sk]; });
 };
 
+const addUniqueKeyDatas = function(pseudoModel, src, dest) {
+    if (!pseudoModel || !pseudoModel.uniqueKey ||
+            !Array.isArray(pseudoModel.uniqueKey)) {
+        return;
+    }
+    pseudoModel.uniqueKey.forEach(function(k) { dest[k] = src[k]; });
+};
+
 const removeShardKeySetData = function(shardKey, op) {
     if (!shardKey || !Array.isArray(shardKey)) {
         return;
@@ -241,6 +249,7 @@ module.exports = {
     nextTick: nextTick || process.nextTick,
     addShardKeyDatas: addShardKeyDatas,
     removeShardKeySetData: removeShardKeySetData,
+    addUniqueKeyDatas: addUniqueKeyDatas,
     sleep: sleep,
     promisify: promisify,
 };

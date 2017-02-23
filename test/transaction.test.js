@@ -775,4 +775,44 @@ describe('Transaction state conflict', function() {
             t.state.should.eql('expire');
         }));
 });
+
+describe('#4 - support unique index', () => {
+    const DataSchema = new mongoose.Schema({
+        key: {type: Number, required: true},
+        data: {type: Number, default: 1},
+    }, {shardKey: {_id: 1}, autoIndex: true});
+
+    DataSchema.index({
+        key: 1,
+    }, {unique: true, background: false});
+
+    let Data;
+
+    before(ma(async() => {
+        Data = transaction.TransactedModel(connection, 'Issue_4', DataSchema);
+    }));
+
+    beforeEach(ma(async() => {
+        await Data.promise.ensureIndexes();
+    }));
+
+    it('should add unique index data', ma(async() => {
+        const t = await Transaction.begin();
+        const data = new Data();
+        data.key = 1;
+        await t.add(data);
+        await t.commit();
+    }));
+
+    it('should pass diff unique values', ma(async() => {
+        const t = await Transaction.begin();
+        const d0 = new Data();
+        const d1 = new Data();
+        d0.key = 0;
+        d1.key = 1;
+        await t.add(d0);
+        await t.add(d1);
+        await t.commit();
+    }));
+});
 // vim: et ts=4 sw=4 sts=4 colorcolumn=80

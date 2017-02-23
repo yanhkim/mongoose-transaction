@@ -164,6 +164,7 @@ TransactionSchema.methods.add = async function(doc, callback) {
             // create new document
             let data = {_id: doc._id, t: this._id, __new: true};
             utils.addShardKeyDatas(pseudoModel, doc, data);
+            utils.addUniqueKeyDatas(pseudoModel, doc, data);
             await doc.collection.promise.insert(data);
             this._docs.push(doc);
             return;
