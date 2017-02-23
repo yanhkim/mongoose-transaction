@@ -658,7 +658,7 @@ describe('Transaction lock', function() {
         const beforeGap =
             +new Date() - transaction.TRANSACTION_EXPIRE_GAP;
         const t = new Transaction({
-            _id: mongoose.Types.ObjectId.createFromTime(beforeGap),
+            _id: mongoose.Types.ObjectId.createFromTime(beforeGap / 1000),
         });
         // wrapTransactionMethods(t);
         const x = new Test({num: 1});
