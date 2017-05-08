@@ -654,7 +654,7 @@ TransactionSchema.methods.find = async function(model, ...args) {
         }
         let RETRY_LIMIT = 5;
         let locked = [];
-        let promises = docs.map(async(_doc) => {
+        let promises = docs.map(async(_doc, idx) => {
             let query = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                               {t: {$exists: false}}]};
             utils.addShardKeyDatas(pseudoModel, _doc, query);
@@ -674,7 +674,7 @@ TransactionSchema.methods.find = async function(model, ...args) {
                 };
                 if (doc) {
                     this._docs.push(doc);
-                    locked.push(doc);
+                    locked[idx] = doc;
                     return;
                 }
                 await utils.sleep(_.sample([37, 59, 139]));
