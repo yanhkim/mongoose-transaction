@@ -3,6 +3,7 @@
 const Promise = require('songbird');
 const should = require('should');
 const mongoose = require('mongoose');
+const _ = require('lodash');
 global.TRANSACTION_DEBUG_LOG = false;
 const transaction = require('../src/index');
 const DEFINE = require('../src/define');
@@ -774,6 +775,39 @@ describe('Transaction state conflict', function() {
             }
             t.state.should.eql('expire');
         }));
+});
+
+describe('#2 - guarantee sorting order', () => {
+    const DataSchema = new mongoose.Schema({
+        data: {type: Number, default: 1},
+    }, {shardKey: {_id: 1}, autoIndex: true});
+
+    let Data;
+    const unordered = _.shuffle(_.range(10));
+
+    before(ma(async() => {
+        Data = transaction.TransactedModel(connection, 'Issue_2', DataSchema);
+    }));
+
+    beforeEach(ma(async() => {
+        for (let i = 0; i < unordered.length; i++) {
+            await (new Data({data: unordered[i]})).promise.save();
+        }
+    }));
+
+    it('fetch insert order', ma(async() => {
+        const t = await Transaction.begin();
+        const datas = await t.find(Data, {});
+        should(datas.map((d) => d.data)).deepEqual(unordered);
+        await t.expire();
+    }));
+
+    it('fetch with sort order', ma(async() => {
+        const t = await Transaction.begin();
+        const datas = await t.find(Data, {}, {sort: {data: 1}});
+        should(datas.map((d) => d.data)).deepEqual(_.range(10));
+        await t.expire();
+    }));
 });
 
 describe('#4 - support unique index', () => {
