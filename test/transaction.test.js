@@ -27,7 +27,7 @@ const initialize = (callback) => {
     } catch (e) {
         config = {mongodb: 'localhost:27017'};
     }
-    const dbname = 'test_transaction_' + (+new Date());
+    const dbname = 'test_transaction_' + (new mongoose.Types.ObjectId());
     const uri = 'mongodb://' + config.mongodb + '/' + dbname;
     // console.log(uri);
     connection = mongoose.createConnection(uri, callback);
@@ -72,12 +72,12 @@ beforeEach(function setTimeout() {
     this.timeout(10000);
 });
 
-afterEach((done) => {
+afterEach(ma(async() => {
     if (!connection || !connection.db) {
-        return done();
+        return;
     }
-    connection.db.dropDatabase(done);
-});
+    await connection.db.promise.dropDatabase();
+}));
 
 const createSavedTestDoc = async(obj = null) => {
     if (obj === null) {
@@ -351,6 +351,7 @@ describe('Find documents from model', () => {
             should.exists(ndocs);
             const count = await ndocs.promise.count();
             should.exists(count);
+            console.log(count);
             count.should.not.eql(0);
             ndocs.rewind();
             const docs = await ndocs.promise.toArray();

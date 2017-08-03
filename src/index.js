@@ -320,6 +320,8 @@ const find = (proto, ignoreCallback) => {
                     // FIXME need return
                     docs = proto.isMultiple ? docs : docs[0];
                     if (docs && docs.rewind) {
+                        // WARN - MAGIC!! avoid cursor is exhausted
+                        await docs.promise.hasNext();
                         docs.rewind();
                     }
                     return docs;

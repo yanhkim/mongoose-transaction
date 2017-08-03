@@ -2,16 +2,11 @@ pipeline:
     build:
         image: node:${NODE_VERSION}
         commands:
-            - echo ${NODE_VERSION}
             - node -v
-            - mkdir -p /tmp/npm
             - cp test/config.js.sample test/config.js
-            - npm config set cache /tmp/npm
             - npm install -d
             - npm install mongoose@${MONGOOSE_VERSION}
             - npm test
-        # cache:
-        #    - /tmp/npm
 
 services:
     mongo:
