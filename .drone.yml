@@ -1,18 +1,19 @@
-build:
-    image: "node:$$NODE_VERSION"
-    commands:
-        - echo $NODE_VERSION
-        - node -v
-        - mkdir -p /tmp/npm
-        - cp test/config.js.sample test/config.js
-        - npm config set cache /tmp/npm
-        - npm install -d
-        - npm install mongoose@$$MONGOOSE_VERSION
-        - npm test
-    cache:
-        - /tmp/npm
+pipeline:
+    build:
+        image: node:${NODE_VERSION}
+        commands:
+            - echo ${NODE_VERSION}
+            - node -v
+            - mkdir -p /tmp/npm
+            - cp test/config.js.sample test/config.js
+            - npm config set cache /tmp/npm
+            - npm install -d
+            - npm install mongoose@${MONGOOSE_VERSION}
+            - npm test
+        # cache:
+        #    - /tmp/npm
 
-compose:
+services:
     mongo:
         image: mongo:latest
 
@@ -24,15 +25,3 @@ matrix:
     MONGOOSE_VERSION:
         - 4.6.x
         - 4.7.x
-
-notify:
-    email:
-        from: $$EMAIL_FROM
-        host: $$SMTP_HOST
-        port: $$SMTP_PORT
-        username: $$SMTP_USERNAME
-        password: $$SMTP_PASSWORD
-        skip_verify: $$SMTP_SKIP_SSL_VERIFY
-        when:
-            success: false
-            failure: true
