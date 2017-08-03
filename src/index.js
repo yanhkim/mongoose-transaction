@@ -8,7 +8,7 @@ const Promise = require('songbird');
 const mongoose = require('mongoose');
 mongoose.Promise = Promise;
 
-const _ = require('underscore');
+const _ = require('lodash');
 const utils = require('./utils');
 const atomic = require('./atomic');
 const TransactionError = require('./error');
@@ -195,7 +195,7 @@ const filterTransactedDocs = async(docs, callback) => {
                 transactionIdDocsMap[doc.t] =
                         transactionIdDocsMap[doc.t] || [];
                 transactionIdDocsMap[doc.t].push(doc);
-                if (!_.contains(transactionIds, doc.t)) {
+                if (!_.includes(transactionIds, doc.t)) {
                     transactionIds.push(doc.t);
                 }
             }
@@ -208,7 +208,7 @@ const filterTransactedDocs = async(docs, callback) => {
                 transactionIdDocsMap[doc.t] =
                     transactionIdDocsMap[doc.t] || [];
                 transactionIdDocsMap[doc.t].push(doc);
-                if (_.contains(transactionIds, doc.t)) {
+                if (_.includes(transactionIds, doc.t)) {
                     return;
                 }
                 transactionIds.push(doc.t);
