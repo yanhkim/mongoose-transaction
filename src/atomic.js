@@ -33,9 +33,12 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
     };
 
     const promise = (async() => {
-        let collection = await db.collection(collectionName);
-        let numberUpdated = await collection.promise.update(query, updateData,
-                                                            writeOptions);
+        const collection = await db.collection(collectionName);
+        const numberUpdated = await collection.promise.update(
+            query,
+            updateData,
+            writeOptions,
+        );
         return [numberUpdated, collection];
     })();
 
@@ -68,13 +71,16 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
 const acquireTransactionLock = async(db, collectionName, query, updateData,
                                      callback) => {
     const promise = (async() => {
-        let [numberUpdated, collection] =
-                await pseudoFindAndModify(db, collectionName, query,
-                                          updateData);
+        const [numberUpdated, collection] = await pseudoFindAndModify(
+            db,
+            collectionName,
+            query,
+            updateData,
+        );
         if (numberUpdated === 1) {
             return;
         }
-        let modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
+        const modQuery = utils.unwrapMongoOp(utils.wrapMongoOp(query));
         // delete modQuery.t;
         if (modQuery.$or) {
             modQuery.$or = modQuery.$or.filter((cond) => {
@@ -86,18 +92,24 @@ const acquireTransactionLock = async(db, collectionName, query, updateData,
         }
         // if findOne return wrong result,
         // `t` value changed to the another transaction
-        let updatedDoc = await collection.promise.findOne(modQuery,
-                                                          {_id: 1, t: 1});
-        let t1 = String(updateData.t || ((updateData.$set || {}).t));
-        let t2 = String(updatedDoc && updatedDoc.t);
+        const updatedDoc = await collection.promise.findOne(
+            modQuery,
+            {_id: 1, t: 1},
+        );
+        const t1 = String(updateData.t || ((updateData.$set || {}).t));
+        const t2 = String(updatedDoc && updatedDoc.t);
         if (t1 === t2) {
             return;
         }
-        let hint = {collection: collectionName, doc: query._id, query: query};
-        throw new TransactionError((updatedDoc
-                                    ? ERROR_TYPE.TRANSACTION_CONFLICT_1
-                                    : ERROR_TYPE.SOMETHING_WRONG),
-                                   hint);
+        const hint = {collection: collectionName, doc: query._id, query: query};
+        throw new TransactionError(
+            (
+                updatedDoc
+                    ? ERROR_TYPE.TRANSACTION_CONFLICT_1
+                    : ERROR_TYPE.SOMETHING_WRONG
+            ),
+            hint,
+        );
     })();
 
     if (callback) {
@@ -124,15 +136,18 @@ const acquireTransactionLock = async(db, collectionName, query, updateData,
 const releaseTransactionLock = async(db, collectionName, query, updateData,
                                      callback) => {
     const promise = (async() => {
-        let [numberUpdated, collection] =
-                await pseudoFindAndModify(db, collectionName, query,
-                                          updateData);
+        const [numberUpdated, collection] = await pseudoFindAndModify(
+            db,
+            collectionName,
+            query,
+            updateData,
+        );
         if (numberUpdated === 1) {
             return;
         }
         // if findAndModify return wrong result,
         // it only can wrong query case.
-        let doc = await collection.promise.findOne(query, {_id: 1, t: 1});
+        const doc = await collection.promise.findOne(query, {_id: 1, t: 1});
         if (!doc) {
             return;
         }
@@ -173,8 +188,11 @@ const findAndModifyMongoNativeNewer = async(collection, query, updateData,
     }
     // above 4.x
     if (!data) {
-        let hint = {collection: collection.name, query: query,
-                    update: updateData};
+        const hint = {
+            collection: collection.name,
+            query: query,
+            update: updateData,
+        };
         throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG, hint);
     }
     return data.value;

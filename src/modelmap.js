@@ -17,8 +17,8 @@ const getPseudoModel = (model) => {
     if (!model) {
         throw new TransactionError(ERROR_TYPE.INVALID_COLLECTION);
     }
-    let key = getCollectionName(model);
-    let pseudoModel = CollectionPseudoModelMap[key];
+    const key = getCollectionName(model);
+    const pseudoModel = CollectionPseudoModelMap[key];
     if (!pseudoModel) {
         throw new TransactionError(ERROR_TYPE.INVALID_COLLECTION,
                                    {collection: key});

@@ -45,7 +45,7 @@ const unwrapMongoOp = (op) => {
 };
 
 const checkExcludeOnly = (fields) => {
-    let ret = fields.some(function(field) {
+    const ret = fields.some((field) => {
         if (field.indexOf('-') === 0) {
             return;
         }
@@ -57,8 +57,8 @@ const checkExcludeOnly = (fields) => {
 const filterExcludedField = (fields, blacklist) => {
     let excludedFields = JSON.parse(JSON.stringify(fields));
 
-    let _excludedFields = [];
-    blacklist.forEach(function(field) {
+    const _excludedFields = [];
+    blacklist.forEach((field) => {
         let parentField;
         let topField;
         if (field.indexOf('.') < 0) {
@@ -69,7 +69,7 @@ const filterExcludedField = (fields, blacklist) => {
             topField = field.split('.')[0];
         }
 
-        let idx = [];
+        const idx = [];
         for (let i = 0; i < excludedFields.length; i += 1) {
             if (excludedFields[i].indexOf('.') < 0) {
                 if (excludedFields[i] === topField) {
@@ -97,11 +97,11 @@ const filterExcludedField = (fields, blacklist) => {
 
 const mergeStringFields = (srcFields, defaultFields) => {
     let excludedFields = [];
-    srcFields.forEach(function(field) {
+    srcFields.forEach((field) => {
         excludedFields.push(field.slice(1));
     });
     excludedFields = filterExcludedField(excludedFields, defaultFields);
-    excludedFields = excludedFields.map(function(field) {
+    excludedFields = excludedFields.map((field) => {
         return '-' + field;
     });
     return excludedFields.join(' ');
@@ -109,7 +109,7 @@ const mergeStringFields = (srcFields, defaultFields) => {
 
 const cleanUpObjectFields = (fields) => {
     let excludedFields = [];
-    let includedFields = [];
+    const includedFields = [];
     Object.keys(fields).forEach((field) => {
         if (fields[field]) {
             includedFields.push(field);
@@ -124,11 +124,11 @@ const cleanUpObjectFields = (fields) => {
 
     excludedFields = filterExcludedField(excludedFields, includedFields);
 
-    let ret = {};
+    const ret = {};
     excludedFields.forEach((field) => (ret[field] = 0));
 
     return ret;
-}
+};
 
 const setDefaultFields = (srcFields, defaultFields) => {
     if (!srcFields) {
@@ -137,7 +137,7 @@ const setDefaultFields = (srcFields, defaultFields) => {
 
     switch (typeof srcFields) {
         case 'string':
-            let fieldArray = srcFields.split(' ');
+            const fieldArray = srcFields.split(' ');
             if (checkExcludeOnly(fieldArray)) {
                 return mergeStringFields(fieldArray, defaultFields);
             }
@@ -180,9 +180,9 @@ if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
     if (global.setImmediate) {
         nextTick = global.setImmediate;
     } else {
-        let timers = require('timers');
+        const timers = require('timers');
         if (timers.setImmediate) {
-            nextTick = function() {
+            nextTick = () => {
                 timers.setImmediate.apply(this, arguments);
             };
         }
@@ -190,36 +190,37 @@ if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
 }
 nextTick = nextTick || process.nextTick;
 
-const DEBUG = function() {
+const DEBUG = () => {
     if (global.TRANSACTION_DEBUG_LOG) {
+        // eslint-disable-next-line
         console.log.apply(console, arguments);
     }
 };
 
-const addShardKeyDatas = function(pseudoModel, src, dest) {
+const addShardKeyDatas = (pseudoModel, src, dest) => {
     if (!pseudoModel || !pseudoModel.shardKey ||
             !Array.isArray(pseudoModel.shardKey)) {
         return;
     }
-    pseudoModel.shardKey.forEach(function(sk) { dest[sk] = src[sk]; });
+    pseudoModel.shardKey.forEach((sk) => { dest[sk] = src[sk]; });
 };
 
-const addUniqueKeyDatas = function(pseudoModel, src, dest) {
+const addUniqueKeyDatas = (pseudoModel, src, dest) => {
     if (!pseudoModel || !pseudoModel.uniqueKey ||
             !Array.isArray(pseudoModel.uniqueKey)) {
         return;
     }
-    pseudoModel.uniqueKey.forEach(function(k) { dest[k] = src[k]; });
+    pseudoModel.uniqueKey.forEach((k) => { dest[k] = src[k]; });
 };
 
-const removeShardKeySetData = function(shardKey, op) {
+const removeShardKeySetData = (shardKey, op) => {
     if (!shardKey || !Array.isArray(shardKey)) {
         return;
     }
     if (!op.$set) {
         return;
     }
-    shardKey.forEach(function(sk) {
+    shardKey.forEach((sk) => {
         delete op.$set[sk];
     });
 };
@@ -238,7 +239,7 @@ const promisify = (obj, method) => {
     return ((...args) => {
         method.apply(obj, args);
     }).promise;
-}
+};
 
 module.exports = {
     DEBUG: DEBUG,

@@ -27,9 +27,9 @@ const initialize = (callback) => {
     } catch (e) {
         config = {mongodb: 'localhost:27017'};
     }
-    let dbname = 'test_transaction_' + (+new Date());
-    let uri = 'mongodb://' + config.mongodb + '/' + dbname;
-    console.log(uri);
+    const dbname = 'test_transaction_' + (+new Date());
+    const uri = 'mongodb://' + config.mongodb + '/' + dbname;
+    // console.log(uri);
     connection = mongoose.createConnection(uri, callback);
 };
 
@@ -39,7 +39,7 @@ const TestSchema = new mongoose.Schema({
     def: {type: Number, required: true, default: 1},
 }, {shardKey: {_id: 1}});
 
-const getNative = async function() {
+const getNative = async function getNative() {
     return await this.collection.promise.findOne({_id: this._id});
 };
 
@@ -58,17 +58,17 @@ before(ma(async() => {
             initialize: (doc) => {
                 doc.shard = doc.shard || doc._id.getTimestamp().getTime();
             },
-        }
+        },
     );
     Transaction = connection.model(transaction.TRANSACTION_COLLECTION,
                                    transaction.TransactionSchema);
     transaction.addCollectionPseudoModelPair(
         Transaction.collection.name, connection,
-        transaction.TransactionSchema
+        transaction.TransactionSchema,
     );
 }));
 
-beforeEach(function() {
+beforeEach(function setTimeout() {
     this.timeout(10000);
 });
 
@@ -86,28 +86,32 @@ const createSavedTestDoc = async(obj = null) => {
     const d = new Test(obj);
     await d.promise.save();
     return d;
-}
+};
 
-describe('TransactedModel', function() {
+describe('TransactedModel', () => {
     it('should have transaction lock at create new doucment', ma(async() => {
         const x = await createSavedTestDoc();
         x.t.should.eql(transaction.NULL_OBJECTID);
     }));
 
-    it('should have transaction lock at fetch document from database',
+    it(
+        'should have transaction lock at fetch document from database',
         ma(async() => {
             const x = await createSavedTestDoc();
             const doc = await Test.promise.findById(x._id);
             doc.t.should.eql(transaction.NULL_OBJECTID);
-        }));
+        }),
+    );
 
-    it('should fetch lock and sharding fields if not exists at fetch targets',
+    it(
+        'should fetch lock and sharding fields if not exists at fetch targets',
         ma(async() => {
             const x = await createSavedTestDoc();
             const test = await Test.promise.findById(x._id, 'num');
             should.exists(test.t);
             should.exists(test._id);
-        }));
+        }),
+    );
 
     it('result of toJSON should remove lock field', ma(async() => {
         const x = await createSavedTestDoc();
@@ -122,7 +126,7 @@ describe('TransactedModel', function() {
     }));
 });
 
-describe('Save with transaction', function() {
+describe('Save with transaction', () => {
     it('transaction add should check validate schema', ma(async() => {
         const x = await createSavedTestDoc();
         const t = await Transaction.begin();
@@ -174,29 +178,27 @@ describe('Save with transaction', function() {
     }));
 
     it('if cancel transaction process and contains new documents, ' +
-            'should cancel make new documents',
-        ma(async() => {
-            const t = await Transaction.begin();
-            const x = new Test({num: 1});
-            await t.add(x);
-            try {
-                await t.cancel('testcase');
-            } catch (e) {}
-            should.not.exists(await x.getNative());
-            should.not.exists(await t.getNative());
-        }));
+            'should cancel make new documents', ma(async() => {
+        const t = await Transaction.begin();
+        const x = new Test({num: 1});
+        await t.add(x);
+        try {
+            await t.cancel('testcase');
+        } catch (e) {}
+        should.not.exists(await x.getNative());
+        should.not.exists(await t.getNative());
+    }));
 
     it('if stop in the middle of transaction process,' +
-            'should cancel make new documents',
-        ma(async() => {
-            const t = await Transaction.begin();
-            const x = new Test({num: 1});
-            await t.add(x);
-            await t.remove();
-            const xx = await Test.promise.find({_id: x._id});
-            should.exists(xx);
-            xx.length.should.eql(0);
-        }));
+            'should cancel make new documents', ma(async() => {
+        const t = await Transaction.begin();
+        const x = new Test({num: 1});
+        await t.add(x);
+        await t.remove();
+        const xx = await Test.promise.find({_id: x._id});
+        should.exists(xx);
+        xx.length.should.eql(0);
+    }));
 
     it('should support multiple documents with transaction', ma(async() => {
         const x = await createSavedTestDoc();
@@ -221,7 +223,8 @@ describe('Save with transaction', function() {
         should.not.exists(await x.getNative());
     }));
 
-    it('if cancel transaction process, also cancel reserved remove document',
+    it(
+        'if cancel transaction process, also cancel reserved remove document',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t = await Transaction.begin();
@@ -229,10 +232,11 @@ describe('Save with transaction', function() {
             await t.removeDoc(x);
             await t.expire();
             should.exists(await x.getNative());
-        }));
+        }),
+    );
 });
 
-describe('Find documents from model', function() {
+describe('Find documents from model', () => {
     it('auto commit before load data', ma(async() => {
         const x = await createSavedTestDoc();
         const t = await Transaction.begin();
@@ -245,7 +249,8 @@ describe('Find documents from model', function() {
         xx.num.should.eql(2);
     }));
 
-    it('find fetch all documents of matched, ' +
+    it(
+        'find fetch all documents of matched, ' +
             'they should finish commit process of previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
@@ -265,28 +270,32 @@ describe('Find documents from model', function() {
                 d.t.should.eql(transaction.NULL_OBJECTID);
                 d.num.should.eql(2);
             });
-        }));
+        }),
+    );
 
-    it('findById fetch a document, ' +
+    it(
+        'findById fetch a document, ' +
             'it should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
             await Test.collection.promise.update(
-                    {_id: x._id},
-                    {$set: {t: new mongoose.Types.ObjectId()}}
+                {_id: x._id},
+                {$set: {t: new mongoose.Types.ObjectId()}},
             );
             const xx = await Test.promise.findById(x._id);
             should.exists(xx);
             xx.t.should.eql(transaction.NULL_OBJECTID);
-        }));
+        }),
+    );
 
-    it('find fetch all documents of matched, ' +
+    it(
+        'find fetch all documents of matched, ' +
             'they should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
             await Test.collection.promise.update(
-                    {_id: x._id},
-                    {$set: {t: new mongoose.Types.ObjectId()}}
+                {_id: x._id},
+                {$set: {t: new mongoose.Types.ObjectId()}},
             );
             await createSavedTestDoc({
                 num: 2, t: new mongoose.Types.ObjectId(),
@@ -295,7 +304,8 @@ describe('Find documents from model', function() {
             should.exists(docs);
             docs.length.should.eql(2);
             docs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
-        }));
+        }),
+    );
 
     it('findOne should wait previous transaction lock', ma(async() => {
         const x = await createSavedTestDoc();
@@ -312,7 +322,8 @@ describe('Find documents from model', function() {
         // ((+new Date()) - st >= 37 * 5).should.be.true;
     }));
 
-    it('findOneNatvie fetch a native mongo document of matched, ' +
+    it(
+        'findOneNatvie fetch a native mongo document of matched, ' +
             'it should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc({
@@ -322,9 +333,11 @@ describe('Find documents from model', function() {
             const nx = await Test.promise.findOneNative({_id: x._id});
             should.exists(nx);
             nx.t.should.eql(transaction.NULL_OBJECTID);
-        }));
+        }),
+    );
 
-    it('findNatvie fetch all native mongo documents of matched, ' +
+    it(
+        'findNatvie fetch all native mongo documents of matched, ' +
             'they should cancel removed previous transaction',
         ma(async() => {
             await createSavedTestDoc({
@@ -344,7 +357,8 @@ describe('Find documents from model', function() {
             should.exists(docs);
             docs.length.should.eql(count);
             docs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
-        }));
+        }),
+    );
 
     it('can be force fetch document(ignore transaction lock)', ma(async() => {
         const x = await createSavedTestDoc();
@@ -357,8 +371,9 @@ describe('Find documents from model', function() {
     }));
 });
 
-describe('Find documents from transaction', function() {
-    it('findOne fetch a document and automatic set transaction lock',
+describe('Find documents from transaction', () => {
+    it(
+        'findOne fetch a document and automatic set transaction lock',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t = await Transaction.begin();
@@ -370,9 +385,11 @@ describe('Find documents from transaction', function() {
             xx.num = 2;
             await t.commit();
             (await x.getNative()).num.should.eql(2);
-        }));
+        }),
+    );
 
-    it('findOne fetch a document of matched, ' +
+    it(
+        'findOne fetch a document of matched, ' +
             'it should finish commit process of previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
@@ -388,7 +405,8 @@ describe('Find documents from transaction', function() {
             should.exists(xx);
             xx.t.should.eql(t1._id);
             xx.num.should.eql(2);
-        }));
+        }),
+    );
 
     it('find fetch documents & automatic set transaction lock', ma(async() => {
         const x = await createSavedTestDoc();
@@ -396,6 +414,7 @@ describe('Find documents from transaction', function() {
 
         const docs = await t.find(Test, {_id: x._id});
         should.exist(docs);
+        // eslint-disable-next-line
         Array.isArray(docs).should.be.true;
         docs.length.should.be.eql(1);
         const xx = docs[0];
@@ -440,9 +459,11 @@ describe('Find documents from transaction', function() {
                 d.t.should.eql(transaction.NULL_OBJECTID);
                 d.num.should.eql(2);
             });
-        }));
+        }),
+    );
 
-    it('findOne fetch a document of matched, ' +
+    it(
+        'findOne fetch a document of matched, ' +
             'it should finish commit process of previous transaction',
         ma(async() => {
             const t = await Transaction.begin();
@@ -453,7 +474,8 @@ describe('Find documents from transaction', function() {
             const xx = await t.findOne(Test, {_id: x._id});
             should.exists(xx);
             xx.t.should.eql(t._id);
-        }));
+        }),
+    );
 
     // FIXME: current find only check t is `NULL_OBJECTID`
     // so, docs.length is always return 0
@@ -470,15 +492,18 @@ describe('Find documents from transaction', function() {
             const docs = await t.find(Test, {});
             docs.length.should.eql(2);
             docs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
-        }));
+        }),
+    );
 
-    it('find fetch documents and automatic set transaction lock',
+    it(
+        'find fetch documents and automatic set transaction lock',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t = await Transaction.begin();
 
             const docs = await t.find(Test, {_id: x._id});
             should.exist(docs);
+            // eslint-disable-next-line
             Array.isArray(docs).should.be.true;
             docs.length.should.be.eql(1);
             const xx = docs[0];
@@ -487,11 +512,13 @@ describe('Find documents from transaction', function() {
             xx.num = 2;
             await t.commit();
             (await x.getNative()).num.should.eql(2);
-        }));
+        }),
+    );
 });
 
-describe('Transaction conflict', function() {
-    it('above two transaction mark manage document mark at the same time',
+describe('Transaction conflict', () => {
+    it(
+        'above two transaction mark manage document mark at the same time',
         ma(async() => {
             const t0 = await Transaction.begin();
             const x = await createSavedTestDoc();
@@ -507,9 +534,11 @@ describe('Transaction conflict', function() {
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_1);
             }
-        }));
+        }),
+    );
 
-    it('already transacted document try save on another process',
+    it(
+        'already transacted document try save on another process',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t = await Transaction.begin();
@@ -530,9 +559,11 @@ describe('Transaction conflict', function() {
             const nx = await x.getNative();
             nx.t.should.eql(transaction.NULL_OBJECTID);
             nx.num.should.eql(2);
-        }));
+        }),
+    );
 
-    it('(normal)not transacted document try save on another process',
+    it(
+        '(normal)not transacted document try save on another process',
         ma(async() => {
             const x = await createSavedTestDoc();
             const xx = await Test.promise.findOne({_id: x._id});
@@ -542,9 +573,11 @@ describe('Transaction conflict', function() {
             const nx = await x.getNative();
             nx.t.should.eql(transaction.NULL_OBJECTID);
             nx.num.should.eql(2);
-        }));
+        }),
+    );
 
-    it.skip('(broken) we cannot care manually sequential update ' +
+    it.skip(
+        '(broken) we cannot care manually sequential update ' +
                 'as fetched document without transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
@@ -562,9 +595,11 @@ describe('Transaction conflict', function() {
             await t1.add(x1);
             should.fail('no error was thrown');
             await t1.commit();
-        }));
+        }),
+    );
 
-    it('findOne from transaction prevent race condition when fetch a document',
+    it(
+        'findOne from transaction prevent race condition when fetch a document',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t = await Transaction.begin();
@@ -578,11 +613,13 @@ describe('Transaction conflict', function() {
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
-        }));
+        }),
+    );
 });
 
-describe('Transaction lock', function() {
-    it('model.findById should raise error at try fetch to locked document',
+describe('Transaction lock', () => {
+    it(
+        'model.findById should raise error at try fetch to locked document',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t = await Transaction.begin();
@@ -595,9 +632,11 @@ describe('Transaction lock', function() {
             } catch (e) {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
-        }));
+        }),
+    );
 
-    it('model.findOne should wait unlock previous transaction lock',
+    it(
+        'model.findOne should wait unlock previous transaction lock',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t = await Transaction.begin();
@@ -614,9 +653,11 @@ describe('Transaction lock', function() {
                 await t.commit();
             })();
             await Promise.all([promise0, promise1]);
-        }));
+        }),
+    );
 
-    it('transaction.findOne should raise error ' +
+    it(
+        'transaction.findOne should raise error ' +
             'at try fetch to locked document ' +
             'and previous transaction was alive',
         ma(async() => {
@@ -633,9 +674,11 @@ describe('Transaction lock', function() {
                 e.message.should.eql(ERRORS.TRANSACTION_CONFLICT_2);
             }
             // ((+new Date()) - st >= 37 * 5).should.be.true;
-        }));
+        }),
+    );
 
-    it('transaction.findOne should wait unlock previous transaction lock',
+    it(
+        'transaction.findOne should wait unlock previous transaction lock',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t0 = await Transaction.begin();
@@ -653,7 +696,8 @@ describe('Transaction lock', function() {
                 await t0.commit();
             })();
             await Promise.all([promise0, promise1]);
-        }));
+        }),
+    );
 
     it('overtime transaction should expire automatically', ma(async() => {
         const beforeGap =
@@ -675,29 +719,28 @@ describe('Transaction lock', function() {
     }));
 });
 
-describe('Transaction state conflict', function() {
-    it('already committed transaction cannot move expire state',
-        ma(async() => {
-            const t = await Transaction.begin();
-            await t._commit();
-            await t.expire();
-            t.state.should.eql('commit');
-        }));
+describe('Transaction state conflict', () => {
+    it('already committed transaction cannot move expire state', ma(async() => {
+        const t = await Transaction.begin();
+        await t._commit();
+        await t.expire();
+        t.state.should.eql('commit');
+    }));
 
-    it('already expired transaction cannot move commit state',
-        ma(async() => {
-            const t = await Transaction.begin();
-            await t._expire();
-            try {
-                await t.commit();
-                should.fail('no error was thrown');
-            } catch (e) {
-                e.message.should.eql(ERRORS.TRANSACTION_EXPIRED);
-            }
-            t.state.should.eql('expire');
-        }));
+    it('already expired transaction cannot move commit state', ma(async() => {
+        const t = await Transaction.begin();
+        await t._expire();
+        try {
+            await t.commit();
+            should.fail('no error was thrown');
+        } catch (e) {
+            e.message.should.eql(ERRORS.TRANSACTION_EXPIRED);
+        }
+        t.state.should.eql('expire');
+    }));
 
-    it('if transaction expired for another process, cannot move commit state',
+    it(
+        'if transaction expired for another process, cannot move commit state',
         ma(async() => {
             const t0 = await Transaction.begin();
             const t1 = await Transaction.promise.findById(t0._id);
@@ -710,10 +753,12 @@ describe('Transaction state conflict', function() {
                 e.message.should.eql(ERRORS.UNKNOWN_COMMIT_ERROR);
             }
             t0.state.should.eql('expire');
-        }));
+        }),
+    );
 
-    it('if transaction committed for another process, ' +
-        'cannot move expire state',
+    it(
+        'if transaction committed for another process, ' +
+            'cannot move expire state',
         ma(async() => {
             const t0 = await Transaction.begin();
             const t1 = await Transaction.promise.findById(t0._id);
@@ -726,10 +771,12 @@ describe('Transaction state conflict', function() {
                 e.message.should.eql(ERRORS.SOMETHING_WRONG);
             }
             t0.state.should.eql('expire');
-        }));
+        }),
+    );
 
-    it('if transaction committed for another process' +
-        'we use persistent data of mongodb',
+    it(
+        'if transaction committed for another process' +
+            'we use persistent data of mongodb',
         ma(async() => {
             const x = await createSavedTestDoc();
             const t0 = await Transaction.begin();
@@ -752,20 +799,22 @@ describe('Transaction state conflict', function() {
             should.exists(ny);
             ny.t.should.eql(transaction.NULL_OBJECTID);
             ny.num.should.eql(2);
-        }));
+        }),
+    );
 
-    it('if mongodb raise error when transaction commit, ' +
+    it(
+        'if mongodb raise error when transaction commit, ' +
             'automatically move to expire state',
         ma(async() => {
             const t = await Transaction.begin();
             const save = t._moveState;
             let called = false;
-            t._moveState = async function(_, __) {
+            t._moveState = async(...args) => {
                 if (!called) {
                     called = true;
                     throw new Error('something wrong');
                 }
-                return save.apply(t, arguments);
+                return save.apply(t, args);
             };
             try {
                 await t.commit();
@@ -774,7 +823,8 @@ describe('Transaction state conflict', function() {
                 e.message.should.eql(ERRORS.UNKNOWN_COMMIT_ERROR);
             }
             t.state.should.eql('expire');
-        }));
+        }),
+    );
 });
 
 describe('#2 - guarantee sorting order', () => {
@@ -872,7 +922,7 @@ describe('#6 - not match results as query', () => {
             x.changable = 0;
             await t.commit();
             return orig;
-        }
+        };
         const ret = _.countBy(await Promise.all([
             process(),
             process(),
@@ -894,7 +944,7 @@ describe('#6 - not match results as query', () => {
             x.changable = 0;
             await t.commit();
             return orig;
-        }
+        };
         const ret = _.countBy(await Promise.all([
             process(),
             process(),

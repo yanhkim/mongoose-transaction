@@ -36,7 +36,7 @@ module.exports.NULL_OBJECTID = DEFINE.NULL_OBJECTID;
 // exports
 module.exports.TransactionSchema = TransactionSchema;
 // FIXME: rename this plugin
-module.exports.bindShardKeyRule = function(schema, rule) {
+module.exports.bindShardKeyRule = (schema, rule) => {
     if (!rule || !rule.fields || !rule.rule || !rule.initialize ||
             !Object.keys(rule.rule).length ||
             typeof rule.initialize !== 'function') {
@@ -47,7 +47,7 @@ module.exports.bindShardKeyRule = function(schema, rule) {
     schema.options.shardKey.initialize = rule.initialize;
 };
 
-let getShardKeyArray = function(shardKey) {
+const getShardKeyArray = (shardKey) => {
     return Array.isArray(shardKey) ? shardKey : [];
 };
 
@@ -71,7 +71,8 @@ let getShardKeyArray = function(shardKey) {
 // * 41 - cannot found update target document
 // * 42 - conflict another transaction; document locked
 // * 43 - conflict another transaction; transaction still alive
-const saveWithoutTransaction = async function(next, callback) {
+const saveWithoutTransaction = async function saveWithoutTransaction(next,
+                                                                     callback) {
     if (this.isNew) {
         return next();
     }
@@ -84,20 +85,25 @@ const saveWithoutTransaction = async function(next, callback) {
         }
         delta = delta[1];
         DEBUG('DELTA', this.collection.name, ':', JSON.stringify(delta));
-        let pseudoModel = ModelMap.getPseudoModel(this);
+        const pseudoModel = ModelMap.getPseudoModel(this);
         this.$__reset();
         // manually save document only can `t` value is unset or NULL_OBJECTID
-        let query = {_id: this._id, $or: [{t: DEFINE.NULL_OBJECTID},
-                                          {t: {$exists: false}}]};
+        const query = {
+            _id: this._id,
+            $or: [
+                {t: DEFINE.NULL_OBJECTID},
+                {t: {$exists: false}},
+            ],
+        };
         utils.addShardKeyDatas(pseudoModel, this, query);
         // TODO: need delta cross check
-        let checkFields = {t: 1};
-        let data = await atomic.findAndModify(pseudoModel.connection,
-                                              this.collection, query, delta,
-                                              checkFields);
+        const checkFields = {t: 1};
+        const data = await atomic.findAndModify(pseudoModel.connection,
+                                                this.collection, query, delta,
+                                                checkFields);
 
-        let hint = {collection: ModelMap.getCollectionName(this),
-                    doc: this._id, query: query};
+        const hint = {collection: ModelMap.getCollectionName(this),
+                      doc: this._id, query: query};
         if (!data) {
             throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_1,
                                        hint);
@@ -121,8 +127,8 @@ module.exports.plugin = (schema) => {
     schema.add({__new: Boolean});
 
     if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
-        schema.post('init', function() {
-            let self = this;
+        schema.post('init', function postInitHook() {
+            const self = this;
             self._oldSave = self.save;
             self.save = (callback) => {
                 self._saveWithoutTransaction((err) => {
@@ -134,7 +140,7 @@ module.exports.plugin = (schema) => {
             };
         });
     } else {
-        schema.pre('save', function(next, callback) {
+        schema.pre('save', function preSaveHook(next, callback) {
             this._saveWithoutTransaction(next, callback);
         });
     }
@@ -168,15 +174,14 @@ module.exports.plugin = (schema) => {
 module.exports.addCollectionPseudoModelPair =
         ModelMap.addCollectionPseudoModelPair;
 
-const filterTransactedDocs = async (docs, callback) => {
+const filterTransactedDocs = async(docs, callback) => {
     const promise = (async() => {
         if (!docs) {
             throw new Error('invalid documents');
         }
-        let transactionIdDocsMap = {};
-        let transactionIds = [];
-        let result = {ids: transactionIds,
-                      map: transactionIdDocsMap};
+        const transactionIdDocsMap = {};
+        const transactionIds = [];
+        const result = {ids: transactionIds, map: transactionIdDocsMap};
         if (docs.nextObject) {
             let doc = true;
             while (doc) {
@@ -196,7 +201,7 @@ const filterTransactedDocs = async (docs, callback) => {
             }
         }
         if (docs.forEach) {
-            docs.forEach(function(doc) {
+            docs.forEach((doc) => {
                 if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                     return;
                 }
@@ -218,39 +223,37 @@ const filterTransactedDocs = async (docs, callback) => {
     return promise;
 };
 
-const recheckTransactions = async (model, transactedDocs, callback) => {
-    let transactionIds = transactedDocs.ids;
-    let transactionIdDocsMap = transactedDocs.map;
+const recheckTransactions = async(model, transactedDocs, callback) => {
+    const transactionIds = transactedDocs.ids;
+    const transactionIdDocsMap = transactedDocs.map;
 
     const promise = (async() => {
         for (let i = 0; i < transactionIds.length; i += 1) {
-            let transactionId = transactionIds[i];
-            let query = {
-                _id: transactionId,
-            };
+            const transactionId = transactionIds[i];
+            const query = {_id: transactionId};
             TransactionSchema.attachShardKey(query);
-            let transactionModel = ModelMap.getPseudoModel(
-                TransactionSchema.RAW_TRANSACTION_COLLECTION
+            const transactionModel = ModelMap.getPseudoModel(
+                TransactionSchema.RAW_TRANSACTION_COLLECTION,
             );
-            let Model = transactionModel
-                    .connection
-                    .models[TransactionSchema.TRANSACTION_COLLECTION];
-            let tr = await Model.promise.findOne(query);
+            const Model = transactionModel
+                .connection
+                .models[TransactionSchema.TRANSACTION_COLLECTION];
+            const tr = await Model.promise.findOne(query);
             if (tr && tr.state !== 'done') {
                 await tr._postProcess();
                 continue;
             }
 
-            let docs = transactionIdDocsMap[transactionId];
-            let promises = docs.map(async(doc) => {
-                let pseudoModel = ModelMap.getPseudoModel(model);
-                let query = {_id: doc._id, t: doc.t};
+            const docs = transactionIdDocsMap[transactionId];
+            const promises = docs.map(async(doc) => {
+                const pseudoModel = ModelMap.getPseudoModel(model);
+                const query = {_id: doc._id, t: doc.t};
                 utils.addShardKeyDatas(pseudoModel, doc, query);
                 if (doc.__new) {
                     await model.collection.promise.remove(query);
                     return;
                 }
-                let updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};
+                const updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};
                 await atomic.releaseLock(pseudoModel.connection.db,
                                          model.collection.name,
                                          query, updateQuery);
@@ -285,9 +288,8 @@ const recheckTransactions = async (model, transactedDocs, callback) => {
 // * 70 - Exceed retry limit
 // SeeAlso :Transaction._postProcess:
 const find = (proto, ignoreCallback) => {
-    let orig = utils.promisify(proto.target, proto.orig);
-    return async function() {
-        let args = Array.prototype.slice.call(arguments);
+    const orig = utils.promisify(proto.target, proto.orig);
+    return async function _find(...args) {
         let callback;
         if (!ignoreCallback) {
             callback = args[args.length - 1];
@@ -301,19 +303,19 @@ const find = (proto, ignoreCallback) => {
         }
         const promise = (async() => {
             if (args.length > 1) {
-                let pseudoModel = ModelMap.getPseudoModel(proto.model);
-                let _defaultFields =
+                const pseudoModel = ModelMap.getPseudoModel(proto.model);
+                const _defaultFields =
                         ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
                 args[1] = utils.setDefaultFields(args[1], _defaultFields);
             }
 
-            let RETRY_LIMIT = 10;
+            const RETRY_LIMIT = 10;
             for (let i = 0; i < RETRY_LIMIT; i += 1) {
                 let docs = await orig(...args);
                 if (!proto.isMultiple) {
                     docs = [docs];
                 }
-                let transactedDocs = await filterTransactedDocs(docs);
+                const transactedDocs = await filterTransactedDocs(docs);
                 if (!transactedDocs.ids.length) {
                     // FIXME need return
                     docs = proto.isMultiple ? docs : docs[0];
@@ -324,8 +326,8 @@ const find = (proto, ignoreCallback) => {
                 }
                 await recheckTransactions(proto.model, transactedDocs);
             }
-            let hint = {collection: ModelMap.getCollectionName(proto.model),
-                        query: args.length > 1 && args[0] || {}};
+            const hint = {collection: ModelMap.getCollectionName(proto.model),
+                          query: args.length > 1 ? args[0] : {}};
             throw new TransactionError(ERROR_TYPE.INFINITE_LOOP, hint);
         })();
 
@@ -347,9 +349,9 @@ const find = (proto, ignoreCallback) => {
 // #### Callback arguments
 // * err
 // * doc - :Document: or :Array:
-const findForce = function(proto) {
-    return function() {
-        return proto.orig.apply(proto.target, arguments);
+const findForce = (proto) => {
+    return (...args) => {
+        return proto.orig.apply(proto.target, args);
         // TODO delete save method
     };
 };
@@ -367,11 +369,10 @@ const findForce = function(proto) {
 //
 // #### Transaction errors
 // SeeAlso :TransactedModel.find...:
-const findWaitUnlock = function(proto) {
-    let _find = find(proto, true);
-    return async function() {
-        let args = Array.prototype.slice.call(arguments);
-        let callback = args[args.length - 1];
+const findWaitUnlock = (proto) => {
+    const _find = find(proto, true);
+    return async function __find(...args) {
+        const callback = args[args.length - 1];
 
         if (!callback || typeof callback !== 'function') {
             // using special case;
@@ -383,17 +384,17 @@ const findWaitUnlock = function(proto) {
 
         const promise = (async() => {
             if (args.length > 1) {
-                let pseudoModel = ModelMap.getPseudoModel(proto.model);
-                let _defaultFields =
+                const pseudoModel = ModelMap.getPseudoModel(proto.model);
+                const _defaultFields =
                         ['t'].concat(getShardKeyArray(pseudoModel.shardKey));
                 args[1] = utils.setDefaultFields(args[1], _defaultFields);
             }
 
-            let RETRY_LIMIT = 5;
+            const RETRY_LIMIT = 5;
             let lastError;
             for (let i = 0; i < RETRY_LIMIT; i += 1) {
                 try {
-                    let docs = await _find(...args);
+                    const docs = await _find(...args);
                     return docs;
                 } catch (e) {
                     lastError = e;
@@ -412,13 +413,13 @@ const findWaitUnlock = function(proto) {
 
 module.exports.TransactedModel = (connection, modelName, schema) => {
     schema.plugin(module.exports.plugin);
-    let model = connection.model(modelName, schema);
+    const model = connection.model(modelName, schema);
     ModelMap.addCollectionPseudoModelPair(model.collection.name, connection,
                                           schema);
 
-    let toJSON = model.prototype.toJSON;
+    const toJSON = model.prototype.toJSON;
     model.prototype.toJSON = function transactedModelToJSON(options) {
-        let res = toJSON.call(this, options);
+        const res = toJSON.call(this, options);
         if (res.t && DEFINE.NULL_OBJECTID.equals(res.t)) {
             delete res.t;
         }
@@ -452,8 +453,8 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
         },
     ];
 
-    prototypes.forEach(function(proto) {
-        let methodName = proto.alternative || proto.name;
+    prototypes.forEach((proto) => {
+        const methodName = proto.alternative || proto.name;
         proto.model = model;
         proto.orig = proto.target[proto.name];
         // FIXME
@@ -463,8 +464,8 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
     });
 
     // syntactic sugar
-    ['', 'Force'].forEach(function(lock) {
-        model['findById' + lock] = function(...args) {
+    ['', 'Force'].forEach(function _sugar(lock) {
+        model['findById' + lock] = function __sugar(...args) {
             args[0] = {_id: args[0]};
             return this['findOne' + lock].apply(this, args);
         };
