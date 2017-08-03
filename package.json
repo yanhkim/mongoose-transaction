@@ -10,7 +10,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "underscore": "",
+    "lodash": "",
     "songbird": "",
     "babel-cli": "^6.0.0",
     "babel-core": "",

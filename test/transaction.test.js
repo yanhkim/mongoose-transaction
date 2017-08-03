@@ -849,4 +849,57 @@ describe('#4 - support unique index', () => {
         await t.commit();
     }));
 });
+
+describe('#6 - not match results as query', () => {
+    let Data;
+    const DataSchema = new mongoose.Schema({
+        changable: {type: Number, required: true},
+    });
+
+    before(ma(async() => {
+        Data = transaction.TransactedModel(connection, 'Issue_6', DataSchema);
+    }));
+
+    it('findOne should ignore changed data', ma(async() => {
+        await (new Data({changable: 1})).promise.save();
+        const process = async() => {
+            const t = await Transaction.begin();
+            const x = await t.findOne(Data, {changable: 1});
+            if (!x) {
+                return;
+            }
+            const orig = x.toObject();
+            x.changable = 0;
+            await t.commit();
+            return orig;
+        }
+        const ret = _.countBy(await Promise.all([
+            process(),
+            process(),
+        ]), (d) => (d && d.changable));
+        should(ret).deepEqual({1: 1, undefined: 1});
+    }));
+
+    it('findOne should find another document', ma(async() => {
+        await (new Data({changable: 1})).promise.save();
+        await (new Data({changable: 1})).promise.save();
+
+        const process = async() => {
+            const t = await Transaction.begin();
+            const x = await t.findOne(Data, {changable: 1});
+            if (!x) {
+                return;
+            }
+            const orig = x.toObject();
+            x.changable = 0;
+            await t.commit();
+            return orig;
+        }
+        const ret = _.countBy(await Promise.all([
+            process(),
+            process(),
+        ]), (d) => (d && d.changable));
+        should(ret).deepEqual({1: 2});
+    }));
+});
 // vim: et ts=4 sw=4 sts=4 colorcolumn=80

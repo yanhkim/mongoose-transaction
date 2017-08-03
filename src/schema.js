@@ -37,7 +37,7 @@
 const Promise = require('songbird');
 const mongoose = require('mongoose');
 const mongooseutils = require('mongoose/lib/utils');
-const _ = require('underscore');
+const _ = require('lodash');
 const atomic = require('./atomic');
 const utils = require('./utils');
 const TransactionError = require('./error');
@@ -729,7 +729,8 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
     conditions = conditions || {};
     options = options || {};
 
-    const promise = (async() => {
+    const RETRY_LIMIT = 5;
+    const _findOne = async(retry = 1) => {
         let pseudoModel = ModelMap.getPseudoModel(model);
         let _doc = await model.collection.promise.findOne(conditions, options);
         if (!_doc) {
@@ -739,37 +740,41 @@ TransactionSchema.methods.findOne = async function(model, ...args) {
         let query1 = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
                                            {t: {$exists: false}}]};
         utils.addShardKeyDatas(pseudoModel, _doc, query1);
+        query1 = _.defaultsDeep(query1, conditions);
         let query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
-        let RETRY_LIMIT = 5;
-        for (let i = 0; i < RETRY_LIMIT; i += 1) {
-            let doc;
-            try {
-                let updateQuery = {$set: {t: this._id}};
-                let opt = {new: true, fields: options.fields};
-                doc = await model.promise.findOneAndUpdate(query1, updateQuery,
-                                                           opt);
-            } catch (e) {}
+        let doc;
+        let updateQuery = {$set: {t: this._id}};
+        let opt = {new: true, fields: options.fields};
+        try {
+            // try lock
+            doc = await model.promise.findOneAndUpdate(query1, updateQuery,
+                                                       opt);
+        } catch (e) {}
 
-            if (doc) {
-                this._docs.push(doc);
-                return doc;
-            }
-
-            // if t is not NULL_OBJECTID, try to go end of transaction process
-            try {
-                await model.promise.findOne(query2);
-            } catch (e) {}
-
-            await utils.sleep(_.sample([37, 59, 139]));
+        if (doc) {
+            this._docs.push(doc);
+            return doc;
         }
 
-        let hint = {collection: _doc && ModelMap.getCollectionName(_doc),
-                    doc: _doc && _doc._id,
-                    query: query1,
-                    transaction: this};
-        throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2, hint);
-    })();
+        // if t is not NULL_OBJECTID, try to go end of transaction process
+        try {
+            // just request data unlock
+            await model.promise.findOne(query2);
+        } catch (e) {}
+
+        if (retry === RETRY_LIMIT) {
+            let hint = {collection: _doc && ModelMap.getCollectionName(_doc),
+                        doc: _doc && _doc._id, query: query1,
+                        transaction: this};
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2, hint);
+        }
+        await utils.sleep(_.sample([37, 59, 139]));
+        return await _findOne(retry + 1);
+
+    };
+
+    const promise = _findOne();
 
     if (callback) {
         return promise.then((ret) => callback(null, ret)).catch(callback);
