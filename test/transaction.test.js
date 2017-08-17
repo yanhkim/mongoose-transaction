@@ -828,6 +828,140 @@ describe('Transaction state conflict', () => {
     );
 });
 
+describe('after-commit hook', () => {
+    it('execute after commit', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.afterCommit(() => {
+            hookValue = 1;
+        });
+        should.equal(hookValue, 0);
+        await t.commit();
+        should.equal(hookValue, 1);
+    }));
+    it('does not execute when transaction is canceled', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.afterCommit(() => {
+            hookValue = 1;
+        });
+        await t.cancel();
+        should.equal(hookValue, 0);
+    }));
+    it('suppress exceptions inside hook', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        t.afterCommit(() => {
+            throw new Exception('IGNORE ME');
+        });
+        let hookValue = 0;
+        t.afterCommit(() => {
+            hookValue = 1;
+        });
+        should.equal(hookValue, 0);
+        await t.commit();
+        should.equal(hookValue, 1);
+    }));
+    it('await async hooks', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.afterCommit(async() => {
+            await new Promise((resolve) => {
+                setTimeout(() => {
+                    hookValue = 1;
+                    resolve();
+                }, 500);
+            });
+        });
+        should.equal(hookValue, 0);
+        await t.commit();
+        should.equal(hookValue, 1);
+    }));
+    it('suppress exceptions inside async hooks', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        t.afterCommit(async() => {
+            await new Promise((resolve) => {
+                setTimeout(() => {
+                    resolve();
+                }, 500);
+            }).then(() => {
+                throw new Exception('IGNORE THIS');
+            });
+        });
+        let hookValue = 0;
+        t.afterCommit(async() => {
+            await new Promise((resolve) => {
+                setTimeout(() => {
+                    hookValue = 1;
+                    resolve();
+                }, 500);
+            });
+        });
+        should.equal(hookValue, 0);
+        await t.commit();
+        should.equal(hookValue, 1);
+    }));
+    it('multiple hook functions run', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+
+        let hookValue = 0;
+        let hookValue2 = 0;
+        t.afterCommit(() => {
+            hookValue = 1;
+        });
+        t.afterCommit(() => {
+            hookValue2 = 2;
+        });
+        should.equal(hookValue, 0);
+        should.equal(hookValue2, 0);
+        await t.commit();
+        should.equal(hookValue, 1);
+        should.equal(hookValue2, 2);
+    }));
+    it('hook/callback does not interrupt each other', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        t.afterCommit(() => {
+            throw new Exception('IGNORE ME');
+        });
+        let hookValue = 0;
+        await t.commit(() => {
+            hookValue = 1;
+        });
+        should.equal(hookValue, 1);
+    }));
+    it('hook/callback does not interrupt each other 2', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.afterCommit(() => {
+            hookValue = 1;
+        });
+        try {
+            await t.commit((e) => {
+                throw new Exception('HELLO WORLD');
+            });
+            should.fail();
+        } catch (e) {
+            should.equal(e.message, 'Exception is not defined');
+        }
+        should.equal(hookValue, 1);
+    }));
+});
+
 describe('#2 - guarantee sorting order', () => {
     const DataSchema = new mongoose.Schema({
         data: {type: Number, default: 1},
