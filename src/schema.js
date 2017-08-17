@@ -327,10 +327,33 @@ TransactionSchema.methods.commit = async function commit(callback) {
         await this.collection.promise.remove({_id: this._id});
     })();
 
+    if (this.afterCommitHooks) {
+        promise.then(() => {
+            this.afterCommitHooks.forEach((f) => f());
+        });
+    }
+
     if (callback) {
         return promise.then(callback).catch(callback);
     }
     return promise;
+};
+
+// ### Transaction.afterCommit
+// Add after-commit hook to this transaction
+//
+// The argument 'func' is executed after successful commit of
+// current transaction.
+// Execution orders of hook functions are NOT guaranteed,
+// so they should not have order dependency.
+// Awaiting on transaction.commit() will NOT await for
+// completion of after-commit hooks.
+//
+// #### Arguments
+// * func - :Function:
+TransactionSchema.methods.afterCommit = function afterCommit(func) {
+    this.afterCommitHooks = this.afterCommitHooks || [];
+    this.afterCommitHooks.push(func);
 };
 
 // ### Transaction._makeHistory
