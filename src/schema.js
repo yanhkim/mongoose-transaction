@@ -334,10 +334,14 @@ TransactionSchema.methods.commit = async function commit(callback) {
             this.afterCommitHooks.forEach((f) => {
                 try {
                     const result = f();
-                    if (result.then) {
-                        promises.push(result.catch((e) => {}));
+                    if (result.catch) {
+                        promises.push(result.catch((e) => {
+                            // TODO: how can we give users their errors?
+                        }));
                     }
-                } catch (e) {}
+                } catch (e) {
+                    // TODO: how can we give users their errors?
+                }
             });
             return Promise.all(promises);
         });
