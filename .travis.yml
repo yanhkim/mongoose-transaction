@@ -1,0 +1,19 @@
+language: node_js
+
+node_js:
+    - 4
+    - 6
+    - 8
+
+env:
+    - MONGOOSE_VERSION=4.6.x
+    - MONGOOSE_VERSION=4.7.x
+
+services:
+    - mongodb
+
+script:
+    - cp test/config.js.sample test/config.js
+    - npm install -d
+    - npm install mongoose@${MONGOOSE_VERSION}
+    - npm test
