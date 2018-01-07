@@ -79,6 +79,10 @@ afterEach(ma(async() => {
     await connection.db.promise.dropDatabase();
 }));
 
+after(ma(async() => {
+    await connection.close();
+}));
+
 const createSavedTestDoc = async(obj = null) => {
     if (obj === null) {
         obj = {num: 1};
