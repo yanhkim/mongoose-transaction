@@ -562,7 +562,7 @@ describe('Transaction conflict', () => {
             await t.commit();
 
             const nx = await x.getNative();
-            nx.t.should.eql(transaction.NULL_OBJECTID);
+            should.ok(nx.t.equals(transaction.NULL_OBJECTID));
             nx.num.should.eql(2);
         }),
     );
@@ -576,7 +576,7 @@ describe('Transaction conflict', () => {
             await xx.promise.save();
 
             const nx = await x.getNative();
-            nx.t.should.eql(transaction.NULL_OBJECTID);
+            should.ok(nx.t.equals(transaction.NULL_OBJECTID));
             nx.num.should.eql(2);
         }),
     );
@@ -650,7 +650,7 @@ describe('Transaction lock', () => {
             const promise0 = (async() => {
                 const xx = await Test.promise.findOne({_id: x._id});
                 should.exists(xx);
-                xx.t.should.eql(transaction.NULL_OBJECTID);
+                should.ok(xx.t.equals(transaction.NULL_OBJECTID));
             })();
 
             const promise1 = (async() => {
@@ -797,12 +797,12 @@ describe('Transaction state conflict', () => {
 
             const nx = await x.getNative();
             should.exists(nx);
-            nx.t.should.not.eql(transaction.NULL_OBJECTID);
+            should.ok(!nx.t.equals(transaction.NULL_OBJECTID));
             nx.num.should.eql(1);
 
             const ny = await y.getNative();
             should.exists(ny);
-            ny.t.should.eql(transaction.NULL_OBJECTID);
+            should.ok(ny.t.equals(transaction.NULL_OBJECTID));
             ny.num.should.eql(2);
         }),
     );
@@ -1089,6 +1089,26 @@ describe('#6 - not match results as query', () => {
             process(),
         ]), (d) => (d && d.changable));
         should(ret).deepEqual({1: 2});
+    }));
+
+    it('find should ignore changed data', ma(async() => {
+        await (new Data({changable: 1})).promise.save();
+        const process = async() => {
+            const t = await Transaction.begin();
+            const x = await t.find(Data, {changable: 1});
+            if (!x || !x.length) {
+                return;
+            }
+            const orig = x[0].toObject();
+            x[0].changable = 0;
+            await t.commit();
+            return orig;
+        };
+        const ret = _.countBy(await Promise.all([
+            process(),
+            process(),
+        ]), (d) => (d && d.changable));
+        should(ret).deepEqual({1: 1, undefined: 1});
     }));
 });
 // vim: et ts=4 sw=4 sts=4 colorcolumn=80

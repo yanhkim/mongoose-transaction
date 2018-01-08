@@ -656,6 +656,29 @@ TransactionSchema.methods.convertQueryForAvoidConflict = (conditions) => {
     return conditions;
 };
 
+TransactionSchema.methods._acquireLock = async function _acquireLock(model, fields,
+                                                             query1, query2) {
+    let doc;
+    const updateQuery = {$set: {t: this._id}};
+    const opt = {new: true, fields: fields};
+    try {
+        // try lock
+        doc = await model.promise.findOneAndUpdate(query1, updateQuery,
+                                                   opt);
+    } catch (e) {}
+
+    if (doc) {
+        this._docs.push(doc);
+        return doc;
+    }
+
+    // if t is not NULL_OBJECTID, try to go end of transaction process
+    try {
+        // just request data unlock
+        await model.promise.findOne(query2);
+    } catch (e) {}
+};
+
 // ### Transaction.find
 // Find documents with assgined `t`
 //
@@ -685,58 +708,61 @@ TransactionSchema.methods.find = async function find(model, ...args) {
     conditions = conditions || {};
     options = options || {};
 
-    conditions.$or = conditions.$or || [];
-    conditions.$or = conditions.$or.concat([{t: DEFINE.NULL_OBJECTID},
-                                            {t: {$exists: false}}]);
+    if (options.skip || options.limit) {
+        console.error('not support skip and limit yet');
+    }
 
+    const origOrCondition = conditions.$or = conditions.$or || [];
+    conditions.$or = conditions.$or.concat([{t: {$ne: this._id}}]);
+
+    let stillRemain = true;
     const promise = (async() => {
         const pseudoModel = ModelMap.getPseudoModel(model);
-
-        const cursor = await model.collection.promise.find(conditions, options);
-        const docs = await cursor.promise.toArray();
-        if (!docs) {
-            return;
-        }
-        const RETRY_LIMIT = 5;
+        let RETRY_LIMIT = 5;
         const locked = [];
-        const promises = docs.map(async(_doc, idx) => {
-            const query = {_id: _doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
-                                                {t: {$exists: false}}]};
-            utils.addShardKeyDatas(pseudoModel, _doc, query);
-            const query2 = {_id: _doc._id};
-            utils.addShardKeyDatas(pseudoModel, _doc, query2);
-            let lastError;
-            for (let i = 0; i < RETRY_LIMIT; i += 1) {
-                let doc;
-                const opt = {new: true, fields: options.fields};
-                try {
-                    const updateQuery = {$set: {t: this._id}};
-                    doc = await model.promise.findOneAndUpdate(query,
-                                                               updateQuery,
-                                                               opt);
-                } catch (e) {
-                    lastError = e;
-                };
-                if (doc) {
-                    this._docs.push(doc);
-                    locked[idx] = doc;
+        while (RETRY_LIMIT--) {
+            // TODO: sort
+            const cursor = await model.collection.promise.find(conditions,
+                                                               {_id: 1});
+            const docs = await cursor.promise.toArray();
+            if (!docs || !docs.length) {
+                stillRemain = false;
+                break;
+            }
+            const promises = docs.map(async(doc) => {
+                let query1 = {_id: doc._id, $or: [{t: DEFINE.NULL_OBJECTID},
+                                                  {t: {$exists: false}}]};
+                utils.addShardKeyDatas(pseudoModel, doc, query1);
+                query1 = _.defaultsDeep(query1, conditions);
+                query1.$or = query1.$or.concat(origOrCondition);
+                const query2 = {_id: doc._id, t: {$ne: this._id}};
+                utils.addShardKeyDatas(pseudoModel, doc, query2);
+                const lockedDoc = await this._acquireLock(model, options.fields,
+                                                          query1, query2);
+                if (!lockedDoc) {
                     return;
                 }
-                await utils.sleep(_.sample([37, 59, 139]));
+                locked.push(lockedDoc);
+            });
+            await Promise.all(promises);
+        }
+        if (stillRemain) {
+            const hint = {collection: ModelMap.getCollectionName(model),
+                          query: conditions, transaction: this};
+            throw new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2, hint);
+        }
+        if (!options.sort) {
+            options.sort = {_id: 1};
+        }
+        return locked.sort((a, b) => {
+            for (const k in options.sort) {
+                if (a[k] === b[k]) {
+                    continue;
+                }
+                return (a[k] < b[k] ? -1 : 1) * options.sort[k];
             }
-            const hint = {
-                collection: _doc && ModelMap.getCollectionName(_doc),
-                doc: _doc && _doc._id,
-                query: query,
-                transaction: this,
-            };
-            lastError = lastError ||
-                        new TransactionError(ERROR_TYPE.TRANSACTION_CONFLICT_2,
-                                             hint);
-            throw lastError;
+            return 0;
         });
-        await Promise.all(promises);
-        return locked;
     })();
 
     if (callback) {
@@ -789,25 +815,10 @@ TransactionSchema.methods.findOne = async function findOne(model, ...args) {
         query1 = _.defaultsDeep(query1, conditions);
         const query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
-        let doc;
-        const updateQuery = {$set: {t: this._id}};
-        const opt = {new: true, fields: options.fields};
-        try {
-            // try lock
-            doc = await model.promise.findOneAndUpdate(query1, updateQuery,
-                                                       opt);
-        } catch (e) {}
-
+        const doc = await this._acquireLock(model, options.fields, query1, query2);
         if (doc) {
-            this._docs.push(doc);
             return doc;
         }
-
-        // if t is not NULL_OBJECTID, try to go end of transaction process
-        try {
-            // just request data unlock
-            await model.promise.findOne(query2);
-        } catch (e) {}
 
         if (retry === RETRY_LIMIT) {
             const hint = {collection: _doc && ModelMap.getCollectionName(_doc),
