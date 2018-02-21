@@ -1,8 +1,6 @@
 'use strict';
 require('songbird');
 const mongoose = require('mongoose');
-const TransactionError = require('./error');
-const ERROR_TYPE = require('./define').ERROR_TYPE;
 
 const wrapMongoOp = (op) => {
     let key, val;
@@ -204,17 +202,18 @@ const addShardKeyDatas = (pseudoModel, src, dest) => {
             !Array.isArray(pseudoModel.shardKey)) {
         return;
     }
-    pseudoModel.shardKey.forEach((sk) => {
-        if (!src[sk]) {
-            const hint = {
-                collection: pseudoModel.name,
-                shardKey: sk,
-                doc: src._id,
-            };
-            throw new TransactionError(ERROR_TYPE.NO_SHARD_KEY, hint);
-        }
-        dest[sk] = src[sk];
-    });
+    pseudoModel.shardKey.forEach((sk) => { dest[sk] = src[sk]; });
+};
+
+const addShardKeyFields = (pseudoModel, dest) => {
+    if (!pseudoModel || !pseudoModel.shardKey ||
+            !Array.isArray(pseudoModel.shardKey)) {
+        return;
+    }
+    if (!dest || !Object.keys(dest).length) {
+        return;
+    }
+    pseudoModel.shardKey.forEach((sk) => { dest[sk] = 1; });
 };
 
 const addUniqueKeyDatas = (pseudoModel, src, dest) => {
@@ -261,6 +260,7 @@ module.exports = {
     extractDelta: extractDelta,
     nextTick: nextTick || process.nextTick,
     addShardKeyDatas: addShardKeyDatas,
+    addShardKeyFields: addShardKeyFields,
     removeShardKeySetData: removeShardKeySetData,
     addUniqueKeyDatas: addUniqueKeyDatas,
     sleep: sleep,

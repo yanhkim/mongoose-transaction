@@ -966,7 +966,8 @@ describe('after-commit hook', () => {
     }));
 });
 
-describe('#2 - guarantee sorting order', () => {
+// internal issue #2
+describe('guarantee sorting order', () => {
     const DataSchema = new mongoose.Schema({
         data: {type: Number, default: 1},
     }, {shardKey: {_id: 1}, autoIndex: true});
@@ -999,7 +1000,8 @@ describe('#2 - guarantee sorting order', () => {
     }));
 });
 
-describe('#4 - support unique index', () => {
+// internal issue #4
+describe('support unique index', () => {
     const DataSchema = new mongoose.Schema({
         key: {type: Number, required: true},
         data: {type: Number, default: 1},
@@ -1039,7 +1041,8 @@ describe('#4 - support unique index', () => {
     }));
 });
 
-describe('#6 - not match results as query', () => {
+// internal issue #6
+describe('not match results as query', () => {
     let Data;
     const DataSchema = new mongoose.Schema({
         changable: {type: Number, required: true},
@@ -1109,6 +1112,31 @@ describe('#6 - not match results as query', () => {
             process(),
         ]), (d) => (d && d.changable));
         should(ret).deepEqual({1: 1, undefined: 1});
+    }));
+});
+
+// github #4
+describe('fix find problem with custom shard key with $in operator', () => {
+    const DataSchema = new mongoose.Schema({
+        sk: {type: Number},
+        data: {type: Number, default: 1},
+    }, {shardKey: {sk: 1}, autoIndex: true});
+
+    let Data;
+
+    before(ma(async() => {
+        Data = transaction.TransactedModel(connection, 'GH_4', DataSchema);
+    }));
+
+    it('support find for lock', ma(async() => {
+        const ids = [];
+        for (let i = 0; i < 10; i ++) {
+            const doc = new Data({sk: 1, data: i});
+            ids.push(doc._id);
+            await doc.promise.save();
+        }
+        const t = await Transaction.begin();
+        await t.find(Data, {_id: {$in: ids}});
     }));
 });
 // vim: et ts=4 sw=4 sts=4 colorcolumn=80
