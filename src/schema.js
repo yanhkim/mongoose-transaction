@@ -718,12 +718,14 @@ TransactionSchema.methods.find = async function find(model, ...args) {
     let stillRemain = true;
     const promise = (async() => {
         const pseudoModel = ModelMap.getPseudoModel(model);
+        const fields = {_id: 1};
+        utils.addShardKeyFields(pseudoModel, fields);
         let RETRY_LIMIT = 5;
         const locked = [];
         while (RETRY_LIMIT--) {
             // TODO: sort
             const cursor = await model.collection.promise.find(conditions,
-                                                               {_id: 1});
+                                                               fields);
             const docs = await cursor.promise.toArray();
             if (!docs || !docs.length) {
                 stillRemain = false;
