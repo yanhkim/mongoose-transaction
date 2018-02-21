@@ -1,8 +1,6 @@
 'use strict';
 require('songbird');
 const mongoose = require('mongoose');
-const TransactionError = require('./error');
-const ERROR_TYPE = require('./define').ERROR_TYPE;
 
 const wrapMongoOp = (op) => {
     let key, val;
@@ -204,17 +202,7 @@ const addShardKeyDatas = (pseudoModel, src, dest) => {
             !Array.isArray(pseudoModel.shardKey)) {
         return;
     }
-    pseudoModel.shardKey.forEach((sk) => {
-        if (!src[sk]) {
-            const hint = {
-                collection: pseudoModel.name,
-                shardKey: sk,
-                doc: src._id,
-            };
-            throw new TransactionError(ERROR_TYPE.NO_SHARD_KEY, hint);
-        }
-        dest[sk] = src[sk];
-    });
+    pseudoModel.shardKey.forEach((sk) => { dest[sk] = src[sk]; });
 };
 
 const addUniqueKeyDatas = (pseudoModel, src, dest) => {
