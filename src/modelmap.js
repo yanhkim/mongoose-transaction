@@ -45,6 +45,7 @@ const addCollectionPseudoModelPair = (collectionName, connection, schema) => {
         });
     });
     CollectionPseudoModelMap[collectionName] = {
+        name: collectionName,
         connection: connection,
         shardKey: shardKey,
         uniqueKey: uniqueKey,
