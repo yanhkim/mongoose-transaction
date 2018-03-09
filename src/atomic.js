@@ -34,11 +34,14 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
 
     const promise = (async() => {
         const collection = await db.collection(collectionName);
-        const numberUpdated = await collection.promise.update(
+        let numberUpdated = await collection.promise.update(
             query,
             updateData,
             writeOptions,
         );
+        if (numberUpdated.result) {
+            numberUpdated = numberUpdated.result.nModified || 0;
+        }
         return [numberUpdated, collection];
     })();
 

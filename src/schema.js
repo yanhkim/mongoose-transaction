@@ -265,8 +265,11 @@ TransactionSchema.methods._moveState = async function _moveState(prev, delta) {
     const state1 = delta.state || ((delta.$set || {}).state);
     const state2 = updatedDoc && updatedDoc.state;
     if (state1 !== state2) {
-        throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
-                                   {transaction: this, query: query});
+        throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG, {
+            transaction: this,
+            query: query,
+            updated: updatedDoc,
+        });
     }
     return (updatedDoc && updatedDoc.history) || [];
 };
