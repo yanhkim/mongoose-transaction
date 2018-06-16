@@ -283,6 +283,8 @@ TransactionSchema.methods._moveState = async function _moveState(prev, delta) {
 // #### Callback arguments
 // * err
 TransactionSchema.methods.commit = async function commit(callback) {
+    await this._doHooks('pre', 'commit');
+
     const mainPromise = (async() => {
         await this._commit();
         const errors = [];
@@ -330,8 +332,14 @@ TransactionSchema.methods.commit = async function commit(callback) {
         await this.collection.promise.remove({_id: this._id});
     })();
 
-    await mainPromise;
-    await this._doHooks('post', 'commit');
+    try {
+        await mainPromise;
+        await this._doHooks('post', 'commit');
+    } catch (e) {
+        await this._doHooks('finalize');
+        throw e;
+    }
+    await this._doHooks('finalize');
 
     const promise = Promise.resolve();
 
@@ -341,19 +349,73 @@ TransactionSchema.methods.commit = async function commit(callback) {
     return promise;
 };
 
+// ### Transaction.pre
+// Add pre hook to this transaction
+//
+// The argument 'func' is executed before commit/expire of
+// current transaction.
+// Execution orders of hook functions are NOT guaranteed,
+// so they should not have order dependency.
+// Awaiting on transaction.commit() will await for completion of
+// all pre-commit hooks.
+//
+// #### Arguments
+// * type - :String:
+// * func - :Function:
+TransactionSchema.methods.pre = function preHook(type, hook) {
+    this._addHook(['pre', type], hook);
+};
+
+// ### Transaction.post
+// Add post hook to this transaction
+//
+// The argument 'func' is executed after commit/expire of
+// current transaction.
+// Execution orders of hook functions are NOT guaranteed,
+// so they should not have order dependency.
+// Awaiting on transaction.commit() will await for completion of
+// all post-commit hooks.
+//
+// #### Arguments
+// * type - :String:
+// * func - :Function:
 TransactionSchema.methods.post = function postHook(type, hook) {
+    this._addHook(['post', type], hook);
+};
+
+// ### Transaction.finalize
+// Add finalize hook to this transaction
+//
+// The argument 'func' is executed whenever success commit or not.
+// Execution orders of hook functions are NOT guaranteed,
+// so they should not have order dependency.
+// Awaiting on transaction.commit() will await for completion of
+// all finalize hooks.
+//
+// #### Arguments
+// * func - :Function:
+TransactionSchema.methods.finalize = function finalizeHook(hook) {
+    this._addHook('finalize', hook);
+};
+
+TransactionSchema.methods._addHook = async function addHook(types, hook) {
     const hooks = this.hooks = this.hooks || {};
-    const group = ['post', type].join('_');
+    const group = (Array.isArray(types) ? types : [types]).join('_');
     hooks[group] = hooks[group] || [];
     hooks[group].push(hook);
     // TODO: unique
 };
 
-TransactionSchema.methods._doHooks = async function doHooks(point, type) {
-    const group = [point, type].join('_');
+TransactionSchema.methods._doHooks = async function doHooks(...types) {
+    const group = types.join('_');
     if (!this.hooks || !this.hooks[group] || !this.hooks[group].length) {
         return;
     }
+    if (this.hooks[group].called) {
+        return;
+    }
+    // prevent double call
+    this.hooks[group].called = true;
     const promises = this.hooks[group].map(async(f) => {
         try {
             await f();
@@ -558,7 +620,9 @@ TransactionSchema.methods._expire = async function _expire() {
 // #### Callback arguments
 // * err
 TransactionSchema.methods.expire = async function expire(callback) {
-    const promise = (async() => {
+    await this._doHooks('pre', 'expire');
+
+    const mainPromise = (async() => {
         await this._expire();
         const errors = [];
 
@@ -604,6 +668,17 @@ TransactionSchema.methods.expire = async function expire(callback) {
         }
         await this.collection.promise.remove({_id: this._id});
     })();
+
+    try {
+        await mainPromise;
+        await this._doHooks('post', 'expire');
+    } catch (e) {
+        await this._doHooks('finalize');
+        throw e;
+    }
+    await this._doHooks('finalize');
+
+    const promise = Promise.resolve();
 
     if (callback) {
         return promise.then(callback).catch(callback);
