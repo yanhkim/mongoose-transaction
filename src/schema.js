@@ -283,7 +283,7 @@ TransactionSchema.methods._moveState = async function _moveState(prev, delta) {
 // #### Callback arguments
 // * err
 TransactionSchema.methods.commit = async function commit(callback) {
-    const promise = (async() => {
+    const mainPromise = (async() => {
         await this._commit();
         const errors = [];
 
@@ -330,33 +330,44 @@ TransactionSchema.methods.commit = async function commit(callback) {
         await this.collection.promise.remove({_id: this._id});
     })();
 
-    let returnPromise = promise;
-    if (this.afterCommitHooks && this.afterCommitHooks.length) {
-        returnPromise = returnPromise.then(() => {
-            const promises = [];
-            this.afterCommitHooks.forEach((f) => {
-                try {
-                    const result = f();
-                    if (result.catch) {
-                        promises.push(result.catch((e) => {
-                            // TODO: how can we give users their errors?
-                        }));
-                    }
-                } catch (e) {
-                    // TODO: how can we give users their errors?
-                }
-            });
-            return Promise.all(promises);
-        });
-    }
+    await mainPromise;
+    await this._doHooks('post', 'commit');
+
+    const promise = Promise.resolve();
 
     if (callback) {
-        returnPromise = returnPromise.then(callback).catch(callback);
+        return promise.then(callback).catch(callback);
     }
-    return returnPromise;
+    return promise;
+};
+
+TransactionSchema.methods.post = function postHook(type, hook) {
+    const hooks = this.hooks = this.hooks || {};
+    const group = ['post', type].join('_');
+    hooks[group] = hooks[group] || [];
+    hooks[group].push(hook);
+    // TODO: unique
+};
+
+TransactionSchema.methods._doHooks = async function doHooks(point, type) {
+    const group = [point, type].join('_');
+    if (!this.hooks || !this.hooks[group] || !this.hooks[group].length) {
+        return;
+    }
+    const promises = this.hooks[group].map(async(f) => {
+        try {
+            await f();
+        } catch(e) {
+            const msg = e.stack || e.message || e.toString();
+            process.stderr.write(msg + '\n');
+        }
+    });
+    await Promise.all(promises);
 };
 
 // ### Transaction.afterCommit
+// DEPRECATED: replaced `post` hook
+//
 // Add after-commit hook to this transaction
 //
 // The argument 'func' is executed after successful commit of
@@ -369,8 +380,10 @@ TransactionSchema.methods.commit = async function commit(callback) {
 // #### Arguments
 // * func - :Function:
 TransactionSchema.methods.afterCommit = function afterCommit(func) {
-    this.afterCommitHooks = this.afterCommitHooks || [];
-    this.afterCommitHooks.push(func);
+    const warn = 'mongoose-transaction: DEPRECATED `afterCommit`.'
+        + ' Please use `post(\'commit\', hook)` instead this\n';
+    process.stderr.write(warn);
+    this.post('commit', func);
 };
 
 // ### Transaction._makeHistory
