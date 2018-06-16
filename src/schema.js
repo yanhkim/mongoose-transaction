@@ -337,16 +337,16 @@ TransactionSchema.methods.commit = async function commit(callback) {
         await this._doHooks('post', 'commit');
     } catch (e) {
         await this._doHooks('finalize');
+        if (callback) {
+            return callback(e);
+        }
         throw e;
     }
     await this._doHooks('finalize');
 
-    const promise = Promise.resolve();
-
     if (callback) {
-        return promise.then(callback).catch(callback);
+        callback();
     }
-    return promise;
 };
 
 // ### Transaction.pre
@@ -674,16 +674,16 @@ TransactionSchema.methods.expire = async function expire(callback) {
         await this._doHooks('post', 'expire');
     } catch (e) {
         await this._doHooks('finalize');
+        if (callback) {
+            return callback(e);
+        }
         throw e;
     }
     await this._doHooks('finalize');
 
-    const promise = Promise.resolve();
-
     if (callback) {
-        return promise.then(callback).catch(callback);
+        callback();
     }
-    return promise;
 };
 
 // ### Transaction.cancel
