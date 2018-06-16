@@ -832,13 +832,13 @@ describe('Transaction state conflict', () => {
     );
 });
 
-describe('after-commit hook', () => {
+describe('post commit hook', () => {
     it('execute after commit', ma(async() => {
         const x = await createSavedTestDoc();
         const t = await Transaction.begin();
         await t.add(x);
         let hookValue = 0;
-        t.afterCommit(() => {
+        t.post('commit', () => {
             hookValue = 1;
         });
         should.equal(hookValue, 0);
@@ -850,7 +850,7 @@ describe('after-commit hook', () => {
         const t = await Transaction.begin();
         await t.add(x);
         let hookValue = 0;
-        t.afterCommit(() => {
+        t.post('commit', () => {
             hookValue = 1;
         });
         await t.cancel();
@@ -860,11 +860,11 @@ describe('after-commit hook', () => {
         const x = await createSavedTestDoc();
         const t = await Transaction.begin();
         await t.add(x);
-        t.afterCommit(() => {
+        t.post('commit', () => {
             throw new Exception('IGNORE ME');
         });
         let hookValue = 0;
-        t.afterCommit(() => {
+        t.post('commit', () => {
             hookValue = 1;
         });
         should.equal(hookValue, 0);
@@ -876,7 +876,7 @@ describe('after-commit hook', () => {
         const t = await Transaction.begin();
         await t.add(x);
         let hookValue = 0;
-        t.afterCommit(async() => {
+        t.post('commit', async() => {
             await new Promise((resolve) => {
                 setTimeout(() => {
                     hookValue = 1;
@@ -892,7 +892,7 @@ describe('after-commit hook', () => {
         const x = await createSavedTestDoc();
         const t = await Transaction.begin();
         await t.add(x);
-        t.afterCommit(async() => {
+        t.post('commit', async() => {
             await new Promise((resolve) => {
                 setTimeout(() => {
                     resolve();
@@ -902,7 +902,7 @@ describe('after-commit hook', () => {
             });
         });
         let hookValue = 0;
-        t.afterCommit(async() => {
+        t.post('commit', async() => {
             await new Promise((resolve) => {
                 setTimeout(() => {
                     hookValue = 1;
@@ -921,10 +921,10 @@ describe('after-commit hook', () => {
 
         let hookValue = 0;
         let hookValue2 = 0;
-        t.afterCommit(() => {
+        t.post('commit', () => {
             hookValue = 1;
         });
-        t.afterCommit(() => {
+        t.post('commit', () => {
             hookValue2 = 2;
         });
         should.equal(hookValue, 0);
@@ -937,7 +937,7 @@ describe('after-commit hook', () => {
         const x = await createSavedTestDoc();
         const t = await Transaction.begin();
         await t.add(x);
-        t.afterCommit(() => {
+        t.post('commit', () => {
             throw new Exception('IGNORE ME');
         });
         let hookValue = 0;
@@ -951,7 +951,7 @@ describe('after-commit hook', () => {
         const t = await Transaction.begin();
         await t.add(x);
         let hookValue = 0;
-        t.afterCommit(() => {
+        t.post('commit', () => {
             hookValue = 1;
         });
         try {
