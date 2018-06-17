@@ -283,7 +283,9 @@ TransactionSchema.methods._moveState = async function _moveState(prev, delta) {
 // #### Callback arguments
 // * err
 TransactionSchema.methods.commit = async function commit(callback) {
-    const promise = (async() => {
+    await this._doHooks('pre', 'commit');
+
+    const mainPromise = (async() => {
         await this._commit();
         const errors = [];
 
@@ -330,33 +332,104 @@ TransactionSchema.methods.commit = async function commit(callback) {
         await this.collection.promise.remove({_id: this._id});
     })();
 
-    let returnPromise = promise;
-    if (this.afterCommitHooks && this.afterCommitHooks.length) {
-        returnPromise = returnPromise.then(() => {
-            const promises = [];
-            this.afterCommitHooks.forEach((f) => {
-                try {
-                    const result = f();
-                    if (result.catch) {
-                        promises.push(result.catch((e) => {
-                            // TODO: how can we give users their errors?
-                        }));
-                    }
-                } catch (e) {
-                    // TODO: how can we give users their errors?
-                }
-            });
-            return Promise.all(promises);
-        });
+    try {
+        await mainPromise;
+        await this._doHooks('post', 'commit');
+    } catch (e) {
+        await this._doHooks('finalize');
+        if (callback) {
+            return callback(e);
+        }
+        throw e;
     }
+    await this._doHooks('finalize');
 
     if (callback) {
-        returnPromise = returnPromise.then(callback).catch(callback);
+        callback();
     }
-    return returnPromise;
+};
+
+// ### Transaction.pre
+// Add pre hook to this transaction
+//
+// The argument 'func' is executed before commit/expire of
+// current transaction.
+// Execution orders of hook functions are NOT guaranteed,
+// so they should not have order dependency.
+// Awaiting on transaction.commit() will await for completion of
+// all pre-commit hooks.
+//
+// #### Arguments
+// * type - :String:
+// * func - :Function:
+TransactionSchema.methods.pre = function preHook(type, hook) {
+    this._addHook(['pre', type], hook);
+};
+
+// ### Transaction.post
+// Add post hook to this transaction
+//
+// The argument 'func' is executed after commit/expire of
+// current transaction.
+// Execution orders of hook functions are NOT guaranteed,
+// so they should not have order dependency.
+// Awaiting on transaction.commit() will await for completion of
+// all post-commit hooks.
+//
+// #### Arguments
+// * type - :String:
+// * func - :Function:
+TransactionSchema.methods.post = function postHook(type, hook) {
+    this._addHook(['post', type], hook);
+};
+
+// ### Transaction.finalize
+// Add finalize hook to this transaction
+//
+// The argument 'func' is executed whenever success commit or not.
+// Execution orders of hook functions are NOT guaranteed,
+// so they should not have order dependency.
+// Awaiting on transaction.commit() will await for completion of
+// all finalize hooks.
+//
+// #### Arguments
+// * func - :Function:
+TransactionSchema.methods.finalize = function finalizeHook(hook) {
+    this._addHook('finalize', hook);
+};
+
+TransactionSchema.methods._addHook = async function addHook(types, hook) {
+    const hooks = this.hooks = this.hooks || {};
+    const group = (Array.isArray(types) ? types : [types]).join('_');
+    hooks[group] = hooks[group] || [];
+    hooks[group].push(hook);
+    // TODO: unique
+};
+
+TransactionSchema.methods._doHooks = async function doHooks(...types) {
+    const group = types.join('_');
+    if (!this.hooks || !this.hooks[group] || !this.hooks[group].length) {
+        return;
+    }
+    if (this.hooks[group].called) {
+        return;
+    }
+    // prevent double call
+    this.hooks[group].called = true;
+    const promises = this.hooks[group].map(async(f) => {
+        try {
+            await f();
+        } catch(e) {
+            const msg = e.stack || e.message || e.toString();
+            process.stderr.write(msg + '\n');
+        }
+    });
+    await Promise.all(promises);
 };
 
 // ### Transaction.afterCommit
+// DEPRECATED: replaced `post` hook
+//
 // Add after-commit hook to this transaction
 //
 // The argument 'func' is executed after successful commit of
@@ -369,8 +442,10 @@ TransactionSchema.methods.commit = async function commit(callback) {
 // #### Arguments
 // * func - :Function:
 TransactionSchema.methods.afterCommit = function afterCommit(func) {
-    this.afterCommitHooks = this.afterCommitHooks || [];
-    this.afterCommitHooks.push(func);
+    const warn = 'mongoose-transaction: DEPRECATED `afterCommit`.'
+        + ' Please use `post(\'commit\', hook)` instead this\n';
+    process.stderr.write(warn);
+    this.post('commit', func);
 };
 
 // ### Transaction._makeHistory
@@ -545,7 +620,9 @@ TransactionSchema.methods._expire = async function _expire() {
 // #### Callback arguments
 // * err
 TransactionSchema.methods.expire = async function expire(callback) {
-    const promise = (async() => {
+    await this._doHooks('pre', 'expire');
+
+    const mainPromise = (async() => {
         await this._expire();
         const errors = [];
 
@@ -592,10 +669,21 @@ TransactionSchema.methods.expire = async function expire(callback) {
         await this.collection.promise.remove({_id: this._id});
     })();
 
-    if (callback) {
-        return promise.then(callback).catch(callback);
+    try {
+        await mainPromise;
+        await this._doHooks('post', 'expire');
+    } catch (e) {
+        await this._doHooks('finalize');
+        if (callback) {
+            return callback(e);
+        }
+        throw e;
     }
-    return promise;
+    await this._doHooks('finalize');
+
+    if (callback) {
+        callback();
+    }
 };
 
 // ### Transaction.cancel
