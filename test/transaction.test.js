@@ -832,7 +832,7 @@ describe('Transaction state conflict', () => {
     );
 });
 
-describe('post commit hook', () => {
+describe('hooks', () => {
     it('execute after commit', ma(async() => {
         const x = await createSavedTestDoc();
         const t = await Transaction.begin();
@@ -962,6 +962,79 @@ describe('post commit hook', () => {
         } catch (e) {
             should.equal(e.message, 'Exception is not defined');
         }
+        should.equal(hookValue, 1);
+    }));
+
+    it('pre commit hooks', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.pre('commit', () => {
+            hookValue++;
+        });
+        t.post('commit', () => {
+            should.equal(hookValue, 1);
+            hookValue++;
+        });
+        should.equal(hookValue, 0);
+        await t.commit();
+        should.equal(hookValue, 2);
+    }));
+
+    it('finailize at commit', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.post('commit', () => {
+            hookValue++;
+        });
+        t.finalize(() => {
+            should.equal(hookValue, 1);
+            hookValue++;
+        });
+        should.equal(hookValue, 0);
+        await t.commit();
+        should.equal(hookValue, 2);
+    }));
+
+    it('pre/post hook at the expire', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.pre('expire', () => {
+            hookValue++;
+        });
+        t.post('expire', () => {
+            should.equal(hookValue, 1);
+            hookValue++;
+        });
+        await t.expire();
+        should.equal(hookValue, 2);
+    }));
+
+    it('call finalize whenever commit and expire', ma(async() => {
+        const x = await createSavedTestDoc();
+        const t = await Transaction.begin();
+        await t.add(x);
+        let hookValue = 0;
+        t.finalize(() => {
+            hookValue++;
+        });
+        await t.expire();
+        should.equal(hookValue, 1);
+    }));
+
+    it('running hooks must call just once', ma(async() => {
+        const t = await Transaction.begin();
+        let hookValue = 0;
+        t.finalize(() => {
+            hookValue++;
+        });
+        await t._doHooks('finalize');
+        await t._doHooks('finalize');
         should.equal(hookValue, 1);
     }));
 });
