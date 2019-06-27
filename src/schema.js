@@ -43,6 +43,7 @@ const utils = require('./utils');
 const TransactionError = require('./error');
 const DEFINE = require('./define');
 const ModelMap = require('./modelmap');
+const Hook = require('./hook');
 const ERROR_TYPE = DEFINE.ERROR_TYPE;
 const DEBUG = utils.DEBUG;
 const ONE_MINUTE = 60 * 1000;
@@ -363,7 +364,7 @@ TransactionSchema.methods.commit = async function commit(callback) {
 // * type - :String:
 // * func - :Function:
 TransactionSchema.methods.pre = function preHook(type, hook) {
-    this._addHook(['pre', type], hook);
+    this._getHooks().pre(type, hook);
 };
 
 // ### Transaction.post
@@ -380,7 +381,7 @@ TransactionSchema.methods.pre = function preHook(type, hook) {
 // * type - :String:
 // * func - :Function:
 TransactionSchema.methods.post = function postHook(type, hook) {
-    this._addHook(['post', type], hook);
+    this._getHooks().post(type, hook);
 };
 
 // ### Transaction.finalize
@@ -395,36 +396,18 @@ TransactionSchema.methods.post = function postHook(type, hook) {
 // #### Arguments
 // * func - :Function:
 TransactionSchema.methods.finalize = function finalizeHook(hook) {
-    this._addHook('finalize', hook);
+    this._getHooks().finalize(hook);
 };
 
-TransactionSchema.methods._addHook = async function addHook(types, hook) {
-    const hooks = this.hooks = this.hooks || {};
-    const group = (Array.isArray(types) ? types : [types]).join('_');
-    hooks[group] = hooks[group] || [];
-    hooks[group].push(hook);
-    // TODO: unique
+TransactionSchema.methods._getHooks = function getHooks() {
+    if (!this.hooks) {
+        this.hooks = new Hook(true);
+    }
+    return this.hooks;
 };
 
 TransactionSchema.methods._doHooks = async function doHooks(...types) {
-    const group = types.join('_');
-    if (!this.hooks || !this.hooks[group] || !this.hooks[group].length) {
-        return;
-    }
-    if (this.hooks[group].called) {
-        return;
-    }
-    // prevent double call
-    this.hooks[group].called = true;
-    const promises = this.hooks[group].map(async(f) => {
-        try {
-            await f();
-        } catch(e) {
-            const msg = e.stack || e.message || e.toString();
-            process.stderr.write(msg + '\n');
-        }
-    });
-    await Promise.all(promises);
+    await this._getHooks().doHooks(...types);
 };
 
 // ### Transaction.afterCommit
