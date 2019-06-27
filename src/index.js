@@ -15,6 +15,7 @@ const TransactionError = require('./error');
 const DEFINE = require('./define');
 const TransactionSchema = require('./schema');
 const ModelMap = require('./modelmap');
+const Hook = require('./hook');
 const ERROR_TYPE = DEFINE.ERROR_TYPE;
 
 module.exports = {
@@ -416,6 +417,13 @@ const findWaitUnlock = (proto) => {
 module.exports.TransactedModel = (connection, modelName, schema) => {
     schema.plugin(module.exports.plugin);
     const model = connection.model(modelName, schema);
+    const hooks = model._hooks = new Hook();
+
+    model.pre = (...args) => hooks.pre(...args);
+    model.post = (...args) => hooks.post(...args);
+    model.finalize = (...args) => hooks.finalize(...args);
+    model._doHooks = (...args) => hooks.clone().doHooks(...args);
+
     ModelMap.addCollectionPseudoModelPair(model.collection.name, connection,
                                           schema);
 

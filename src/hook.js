@@ -25,7 +25,7 @@ class Hook {
         // TODO: unique
     }
 
-    async doHooks(...types) {
+    async doHooks(context, ...types) {
         const group = types.join('_');
         if (!this.hooks || !this.hooks[group] || !this.hooks[group].length) {
             return;
@@ -41,7 +41,7 @@ class Hook {
 
         const promises = this.hooks[group].map(async(f) => {
             try {
-                await f();
+                await f(context);
             } catch(e) {
                 const msg = e.stack || e.message || e.toString();
                 process.stderr.write(msg + '\n');
@@ -60,6 +60,14 @@ class Hook {
 
     finalize(hook) {
         this._addHook('finalize', hook);
+    }
+
+    clone(once = true) {
+        const hook = new Hook(once);
+        Object.keys(this.hooks).forEach((key) => {
+            hook.hooks[key] = this.hooks[key].slice();
+        });
+        return hook;
     }
 };
 

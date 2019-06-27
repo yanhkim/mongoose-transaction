@@ -407,7 +407,18 @@ TransactionSchema.methods._getHooks = function getHooks() {
 };
 
 TransactionSchema.methods._doHooks = async function doHooks(...types) {
-    await this._getHooks().doHooks(...types);
+    const promises = (this._docs || []).map(async(doc) => {
+        try {
+            if (doc.constructor && doc.constructor._doHooks) {
+                await doc.constructor._doHooks(doc, ...types);
+            }
+        } catch (e) {
+            // FIXME
+            // console.log(e);
+        }
+    });
+    promises.push(this._getHooks().doHooks(this, ...types));
+    await Promise.all(promises);
 };
 
 // ### Transaction.afterCommit
@@ -443,7 +454,7 @@ TransactionSchema.methods.afterCommit = function afterCommit(func) {
 //
 // #### Promise arguments
 // * errors
-TransactionSchema.methods._makeHistory = async function _makeHistory() {
+TransactionSchema.methods._makeHistory = async function _makeHistory(action) {
     const errors = [];
 
     if (this.history.length) {
@@ -524,7 +535,7 @@ TransactionSchema.methods._commit = async function _commit() {
     }
 
     const hint = {transaction: this};
-    const errors = await this._makeHistory();
+    const errors = await this._makeHistory('commit');
     if (errors.length) {
         // eslint-disable-next-line
         console.error(errors);
@@ -551,11 +562,7 @@ TransactionSchema.methods._commit = async function _commit() {
         await this.expire();
         throw new TransactionError(ERROR_TYPE.UNKNOWN_COMMIT_ERROR, hint);
     }
-    if (!history) {
-        this._docs.forEach(function _emit(doc) {
-            doc.emit('transactionAdded', this);
-        });
-    } else {
+    if (history) {
         this.history = history;
     }
     this.$__reset();
@@ -582,7 +589,7 @@ TransactionSchema.methods._expire = async function _expire() {
         DEBUG('transaction committed', this._id);
         return;
     }
-    await this._makeHistory();
+    await this._makeHistory('expire');
     this.state = 'expire';
     const delta = utils.extractDelta(this);
     const history = await this._moveState('pending', delta);
