@@ -6,14 +6,25 @@ node_js:
     - 8
 
 env:
-    - MONGOOSE_VERSION=4.6.x
-    - MONGOOSE_VERSION=4.7.x
+    - MONGOOSE_VERSION=4.6.x MONGODB=3.4.19
+    - MONGOOSE_VERSION=4.7.x MONGODB=3.4.19
 
-services:
-    - mongodb
+matrix:
+    fast_finish: true
+
+install:
+    - curl -L http://fastdl.mongodb.org/linux/mongodb-linux-x86_64-${MONGODB}.tgz | tar xz
+    - ${PWD}/mongodb-linux-x86_64-${MONGODB}/bin/mongod --version
+
+before_script:
+    - mkdir ${PWD}/mongodb-linux-x86_64-${MONGODB}/data
+    - ${PWD}/mongodb-linux-x86_64-${MONGODB}/bin/mongod --dbpath ${PWD}/mongodb-linux-x86_64-${MONGODB}/data --logpath ${PWD}/mongodb-linux-x86_64-${MONGODB}/mongodb.log --fork
 
 script:
     - cp test/config.js.sample test/config.js
     - npm install -d
     - npm install mongoose@${MONGOOSE_VERSION}
     - npm test
+
+after_script:
+    - pkill mongod
