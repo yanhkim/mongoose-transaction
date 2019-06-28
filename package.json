@@ -4,9 +4,9 @@
   "version": "0.0.1",
   "author": "Sunguk Lee <sulee@ea.com>",
   "keywords": [
-      "mongodb",
-      "mongoose",
-      "transaction"
+    "mongodb",
+    "mongoose",
+    "transaction"
   ],
   "license": "MIT",
   "dependencies": {
@@ -19,13 +19,13 @@
   },
   "devDependencies": {
     "should": "",
-    "mocha": "",
+    "mocha": "^5.1.0",
     "mongoose": "4.7.7"
   },
   "main": "lib/index.js",
   "scripts": {
-      "postinstall": "npm run build",
-      "build": "babel src --out-dir lib",
-      "test": "mocha --compilers js:babel-core/register -t 10000"
+    "postinstall": "npm run build",
+    "build": "babel src --out-dir lib",
+    "test": "mocha --compilers js:babel-core/register -t 10000"
   }
 }
