@@ -1039,6 +1039,45 @@ describe('hooks', () => {
     }));
 });
 
+describe('model base hooks', () => {
+    const DataSchema = new mongoose.Schema({
+        data: {type: Number, default: 1},
+    }, {shardKey: {_id: 1}, autoIndex: true});
+
+    let Data;
+
+    before(ma(async() => {
+        Data = transaction.TransactedModel(connection, 'Issue_ModelSaveHook',
+                                           DataSchema);
+        Data.pre('commit', (doc) => {
+            doc.__called.push(1);
+        });
+
+        Data.post('commit', (doc) => {
+            doc.__called.push(2);
+        });
+
+        Data.finalize((doc) => {
+            doc.__called.push(3);
+        });
+    }));
+
+    it('should call hooks', ma(async() => {
+        let t = await Transaction.begin();
+        let doc = new Data({data: 1});
+        doc.__called = [];
+        await t.add(doc);
+        await t.commit();
+        should(doc.__called).deepEqual([1,2,3])
+
+        t = await Transaction.begin();
+        doc = await t.findOne(Data, {_id: doc._id});
+        doc.__called = [];
+        await t.commit();
+        should(doc.__called).deepEqual([1,2,3])
+    }));
+});
+
 // internal issue #2
 describe('guarantee sorting order', () => {
     const DataSchema = new mongoose.Schema({
