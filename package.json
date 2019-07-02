@@ -1,7 +1,7 @@
 {
   "name": "mongoose-transaction",
   "description": "mongoose Transaction plugin",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "author": "Sunguk Lee <sulee@ea.com>",
   "keywords": [
       "mongodb",
