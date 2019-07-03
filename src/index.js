@@ -469,8 +469,10 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
         proto.orig = proto.target[proto.name];
         // FIXME
         proto.target[proto.name + 'Force'] = proto.orig;
-        model[methodName] = findWaitUnlock(proto);
-        model[methodName + 'Force'] = findForce(proto);
+        const wait = findWaitUnlock(proto);
+        const force = findForce(proto);
+        model[methodName] = (...args) => wait.apply(model, args);
+        model[methodName + 'Force'] = (...args) => force.apply(model, args);
     });
 
     // syntactic sugar
