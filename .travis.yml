@@ -1,9 +1,9 @@
 language: node_js
 
 node_js:
-    - 4
-    - 6
     - 8
+    - 10
+    - 12
 
 env:
     - MONGOOSE_VERSION=4.6.x MONGODB=3.4.19
