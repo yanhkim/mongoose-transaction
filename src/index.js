@@ -183,13 +183,8 @@ const filterTransactedDocs = async(docs, callback) => {
         const transactionIdDocsMap = {};
         const transactionIds = [];
         const result = {ids: transactionIds, map: transactionIdDocsMap};
-        if (docs.nextObject) {
-            let doc = true;
-            while (doc) {
-                doc = await docs.promise.nextObject();
-                if (!doc) {
-                    break;
-                }
+        if (docs.toArray) {
+            for (const doc of (await docs.promise.toArray())) {
                 if (!doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                     continue;
                 }
@@ -200,8 +195,15 @@ const filterTransactedDocs = async(docs, callback) => {
                     transactionIds.push(doc.t);
                 }
             }
-        }
-        if (docs.forEach) {
+            if (docs.rewind) {
+                // WARN - MAGIC!! avoid cursor is exhausted
+                if (DEFINE.MONGOOSE_VERSIONS[0] == 4 &&
+                        DEFINE.MONGOOSE_VERSIONS[1] <= 7) {
+                    await docs.promise.hasNext();
+                }
+                docs.rewind();
+            }
+        } else if (docs.forEach) {
             docs.forEach((doc) => {
                 if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                     return;
@@ -319,13 +321,7 @@ const find = (proto, ignoreCallback) => {
                 const transactedDocs = await filterTransactedDocs(docs);
                 if (!transactedDocs.ids.length) {
                     // FIXME need return
-                    docs = proto.isMultiple ? docs : docs[0];
-                    if (docs && docs.rewind) {
-                        // WARN - MAGIC!! avoid cursor is exhausted
-                        await docs.promise.hasNext();
-                        docs.rewind();
-                    }
-                    return docs;
+                    return proto.isMultiple ? docs : docs[0];
                 }
                 await recheckTransactions(proto.model, transactedDocs);
             }
