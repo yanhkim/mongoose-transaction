@@ -357,7 +357,7 @@ describe('Find documents from model', () => {
             should.exists(ndocs);
             const count = await ndocs.promise.count();
             should.exists(count);
-            console.log(count);
+            // console.log(count);
             count.should.not.eql(0);
             ndocs.rewind();
             const docs = await ndocs.promise.toArray();
