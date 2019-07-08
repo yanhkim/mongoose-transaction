@@ -275,7 +275,11 @@ const recheckTransactions = async(model, transactedDocs, callback) => {
                 const query = {_id: doc._id, t: doc.t};
                 utils.addShardKeyDatas(pseudoModel, doc, query);
                 if (doc.__new) {
-                    await model.collection.promise.remove(query);
+                    if (model.collection.removeOne) {
+                        await model.collection.promise.removeOne(query);
+                    } else {
+                        await model.collection.promise.remove(query);
+                    }
                     return;
                 }
                 const updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};

@@ -166,7 +166,11 @@ TransactionSchema.methods.add = async function addDoc(doc, callback) {
             const data = {_id: doc._id, t: this._id, __new: true};
             utils.addShardKeyDatas(pseudoModel, doc, data);
             utils.addUniqueKeyDatas(pseudoModel, doc, data);
-            await doc.collection.promise.insert(data);
+            if (doc.collection.insertOne) {
+                await doc.collection.promise.insertOne(data);
+            } else {
+                await doc.collection.promise.insert(data);
+            }
             this._docs.push(doc);
             return;
         }
@@ -303,7 +307,11 @@ TransactionSchema.methods.commit = async function commit(callback) {
             if (history.options && history.options.remove) {
                 const col = pseudoModel.connection.collection(history.col);
                 try {
-                    await col.promise.remove(query);
+                    if (col.removeOne) {
+                        await col.promise.removeOne(query);
+                    } else {
+                        await col.promise.remove(query);
+                    }
                 } catch (e) {
                     errors.push(e);
                 }
@@ -330,7 +338,11 @@ TransactionSchema.methods.commit = async function commit(callback) {
             // TODO: cleanup batch
             return;
         }
-        await this.collection.promise.remove({_id: this._id});
+        if (this.collection.removeOne) {
+            await this.collection.promise.removeOne({_id: this._id});
+        } else {
+            await this.collection.promise.remove({_id: this._id});
+        }
     })();
 
     try {
@@ -634,7 +646,11 @@ TransactionSchema.methods.expire = async function expire(callback) {
             if (history.options && history.options.new) {
                 const col = pseudoModel.connection.collection(history.col);
                 try {
-                    await col.promise.remove(query);
+                    if (col.removeOne) {
+                        await col.promise.removeOne(query);
+                    } else {
+                        await col.promise.remove(query);
+                    }
                 } catch (e) {
                     errors.push(e);
                 }
@@ -656,7 +672,11 @@ TransactionSchema.methods.expire = async function expire(callback) {
             // TODO: cleanup batch
             return;
         }
-        await this.collection.promise.remove({_id: this._id});
+        if (this.collection.removeOne) {
+            await this.collection.promise.removeOne({_id: this._id});
+        } else {
+            await this.collection.promise.remove({_id: this._id});
+        }
     })();
 
     try {

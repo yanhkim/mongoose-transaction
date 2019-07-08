@@ -21,6 +21,13 @@ const ma = (fn) => {
     };
 };
 
+const update = async(Col, ...args) => {
+    if (Col.updateMany) {
+        return await Col.promise.updateMany(...args);
+    }
+    return await Col.promise.update(...args);
+};
+
 const initialize = (callback) => {
     let config;
     try {
@@ -284,7 +291,8 @@ describe('Find documents from model', () => {
             'it should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
-            await Test.collection.promise.update(
+            await update(
+                Test.collection,
                 {_id: x._id},
                 {$set: {t: new mongoose.Types.ObjectId()}},
             );
@@ -299,7 +307,8 @@ describe('Find documents from model', () => {
             'they should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
-            await Test.collection.promise.update(
+            await update(
+                Test.collection,
                 {_id: x._id},
                 {$set: {t: new mongoose.Types.ObjectId()}},
             );
