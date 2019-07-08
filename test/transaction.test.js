@@ -10,6 +10,10 @@ const DEFINE = require('../src/define');
 const utils = require('../src/utils');
 const ERRORS = DEFINE.ERROR_TYPE;
 const NO_PUSHALL = process.env.NO_PUSHALL === '1';
+const USE_NEW_MONGO_URL_PARSER = process.env.USE_NEW_MONGO_URL_PARSER === '1';
+const USE_FIND_AND_MODIFY = process.env.USE_FIND_AND_MODIFY !== '0';
+const USE_CREATE_INDEX = process.env.USE_CREATE_INDEX === '1';
+
 
 let connection;
 let Test;
@@ -38,6 +42,9 @@ const initialize = (callback) => {
     const dbname = 'test_transaction_' + (new mongoose.Types.ObjectId());
     const uri = 'mongodb://' + config.mongodb + '/' + dbname;
     // console.log(uri);
+    mongoose.set('useFindAndModify', USE_FIND_AND_MODIFY);
+    mongoose.set('useCreateIndex', USE_CREATE_INDEX);
+    mongoose.set('useNewUrlParser', USE_NEW_MONGO_URL_PARSER);
     connection = mongoose.createConnection(uri, callback);
 };
 
