@@ -36,9 +36,10 @@
 'use strict';
 const Promise = require('songbird');
 const mongoose = require('mongoose');
-const mongooseutils = require('mongoose/lib/utils');
+const pluralize = require('mongoose-legacy-pluralize');
 const _ = require('lodash');
 const atomic = require('./atomic');
+const raw = require('./raw');
 const utils = require('./utils');
 const TransactionError = require('./error');
 const DEFINE = require('./define');
@@ -46,6 +47,7 @@ const ModelMap = require('./modelmap');
 const Hook = require('./hook');
 const ERROR_TYPE = DEFINE.ERROR_TYPE;
 const DEBUG = utils.DEBUG;
+const INFO = utils.INFO;
 const ONE_MINUTE = 60 * 1000;
 
 const TransactionSchema = new mongoose.Schema({
@@ -55,7 +57,7 @@ const TransactionSchema = new mongoose.Schema({
 
 TransactionSchema.TRANSACTION_COLLECTION = 'Transaction';
 TransactionSchema.RAW_TRANSACTION_COLLECTION =
-    mongooseutils.toCollectionName(TransactionSchema.TRANSACTION_COLLECTION);
+    pluralize(TransactionSchema.TRANSACTION_COLLECTION);
 TransactionSchema.TRANSACTION_EXPIRE_GAP = ONE_MINUTE;
 
 TransactionSchema.attachShardKey = (doc) => {
@@ -166,7 +168,7 @@ TransactionSchema.methods.add = async function addDoc(doc, callback) {
             const data = {_id: doc._id, t: this._id, __new: true};
             utils.addShardKeyDatas(pseudoModel, doc, data);
             utils.addUniqueKeyDatas(pseudoModel, doc, data);
-            await doc.collection.promise.insert(data);
+            await raw.insert(doc.collection, data);
             this._docs.push(doc);
             return;
         }
@@ -303,7 +305,7 @@ TransactionSchema.methods.commit = async function commit(callback) {
             if (history.options && history.options.remove) {
                 const col = pseudoModel.connection.collection(history.col);
                 try {
-                    await col.promise.remove(query);
+                    await raw.remove(col, query);
                 } catch (e) {
                     errors.push(e);
                 }
@@ -325,12 +327,11 @@ TransactionSchema.methods.commit = async function commit(callback) {
         await Promise.all(promises);
 
         if (errors.length) {
-            // eslint-disable-next-line
-            console.error('errors', errors);
+            INFO('errors', errors);
             // TODO: cleanup batch
             return;
         }
-        await this.collection.promise.remove({_id: this._id});
+        await raw.remove(this.collection, {_id: this._id});
     })();
 
     try {
@@ -346,7 +347,7 @@ TransactionSchema.methods.commit = async function commit(callback) {
     await this._doHooks('finalize');
 
     if (callback) {
-        callback();
+        return callback();
     }
 };
 
@@ -436,8 +437,10 @@ TransactionSchema.methods._doHooks = async function doHooks(...types) {
 // #### Arguments
 // * func - :Function:
 TransactionSchema.methods.afterCommit = function afterCommit(func) {
-    const warn = 'mongoose-transaction: DEPRECATED `afterCommit`.'
-        + ' Please use `post(\'commit\', hook)` instead this\n';
+    const warn = (
+        'mongoose-transaction: DEPRECATED `afterCommit`.' +
+        ' Please use `post(\'commit\', hook)` instead this\n'
+    );
     process.stderr.write(warn);
     this.post('commit', func);
 };
@@ -537,8 +540,7 @@ TransactionSchema.methods._commit = async function _commit() {
     const hint = {transaction: this};
     const errors = await this._makeHistory('commit');
     if (errors.length) {
-        // eslint-disable-next-line
-        console.error(errors);
+        INFO('errors', errors);
         await this.expire();
         if (errors[0]) {
             throw errors[0];
@@ -634,7 +636,7 @@ TransactionSchema.methods.expire = async function expire(callback) {
             if (history.options && history.options.new) {
                 const col = pseudoModel.connection.collection(history.col);
                 try {
-                    await col.promise.remove(query);
+                    await raw.remove(col, query);
                 } catch (e) {
                     errors.push(e);
                 }
@@ -651,12 +653,11 @@ TransactionSchema.methods.expire = async function expire(callback) {
         });
         await Promise.all(promises);
         if (errors.length) {
-            // eslint-disable-next-line
-            console.error('errors', errors);
+            INFO('errors', errors);
             // TODO: cleanup batch
             return;
         }
-        await this.collection.promise.remove({_id: this._id});
+        await raw.remove(this.collection, {_id: this._id});
     })();
 
     try {
@@ -672,7 +673,7 @@ TransactionSchema.methods.expire = async function expire(callback) {
     await this._doHooks('finalize');
 
     if (callback) {
-        callback();
+        return callback();
     }
 };
 
@@ -737,8 +738,8 @@ TransactionSchema.methods.convertQueryForAvoidConflict = (conditions) => {
     return conditions;
 };
 
-TransactionSchema.methods._acquireLock = async function _acquireLock(model, fields,
-                                                             query1, query2) {
+TransactionSchema.methods._acquireLock =
+async function _acquireLock(model, fields, query1, query2) {
     let doc;
     const updateQuery = {$set: {t: this._id}};
     const opt = {new: true, fields: fields};
@@ -790,7 +791,7 @@ TransactionSchema.methods.find = async function find(model, ...args) {
     options = options || {};
 
     if (options.skip || options.limit) {
-        console.error('not support skip and limit yet');
+        INFO('not support skip and limit yet');
     }
 
     const origOrCondition = conditions.$or = conditions.$or || [];
@@ -898,7 +899,8 @@ TransactionSchema.methods.findOne = async function findOne(model, ...args) {
         query1 = _.defaultsDeep(query1, conditions);
         const query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
-        const doc = await this._acquireLock(model, options.fields, query1, query2);
+        const doc = await this._acquireLock(model, options.fields, query1,
+                                            query2);
         if (doc) {
             return doc;
         }

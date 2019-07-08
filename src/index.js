@@ -11,6 +11,7 @@ mongoose.Promise = Promise;
 const _ = require('lodash');
 const utils = require('./utils');
 const atomic = require('./atomic');
+const raw = require('./raw');
 const TransactionError = require('./error');
 const DEFINE = require('./define');
 const TransactionSchema = require('./schema');
@@ -127,22 +128,31 @@ module.exports.plugin = (schema) => {
                     'default': DEFINE.NULL_OBJECTID}});
     schema.add({__new: Boolean});
 
-    if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
+    if (DEFINE.MONGOOSE_VERSIONS[0] === 4) {
+        schema.pre('save', function preSaveHook(next, callback) {
+            this._saveWithoutTransaction(next, callback);
+        });
+    } else {
+        // >= 5
         schema.post('init', function postInitHook() {
             const self = this;
             self._oldSave = self.save;
             self.save = (callback) => {
-                self._saveWithoutTransaction((err) => {
-                    if (err) {
-                        return callback(err);
+                self._oldSave((err) => {
+                    if (err && err.message === ERROR_TYPE.NORMAL) {
+                        return callback();
                     }
-                    self._oldSave(callback);
-                }, callback);
+                    callback(err);
+                });
             };
         });
-    } else {
-        schema.pre('save', function preSaveHook(next, callback) {
-            this._saveWithoutTransaction(next, callback);
+
+        schema.pre('save', async function preSaveHook() {
+            const needToReject = !this.isNew;
+            await this._saveWithoutTransaction(() => {});
+            if (needToReject) {
+                throw new TransactionError(ERROR_TYPE.NORMAL);
+            }
         });
     }
 
@@ -183,13 +193,8 @@ const filterTransactedDocs = async(docs, callback) => {
         const transactionIdDocsMap = {};
         const transactionIds = [];
         const result = {ids: transactionIds, map: transactionIdDocsMap};
-        if (docs.nextObject) {
-            let doc = true;
-            while (doc) {
-                doc = await docs.promise.nextObject();
-                if (!doc) {
-                    break;
-                }
+        if (docs.toArray) {
+            for (const doc of (await docs.promise.toArray())) {
                 if (!doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                     continue;
                 }
@@ -200,8 +205,15 @@ const filterTransactedDocs = async(docs, callback) => {
                     transactionIds.push(doc.t);
                 }
             }
-        }
-        if (docs.forEach) {
+            if (docs.rewind) {
+                // WARN - MAGIC!! avoid cursor is exhausted
+                if (DEFINE.MONGOOSE_VERSIONS[0] === 4 &&
+                        DEFINE.MONGOOSE_VERSIONS[1] <= 7) {
+                    await docs.promise.hasNext();
+                }
+                docs.rewind();
+            }
+        } else if (docs.forEach) {
             docs.forEach((doc) => {
                 if (!doc || !doc.t || DEFINE.NULL_OBJECTID.equals(doc.t)) {
                     return;
@@ -251,7 +263,7 @@ const recheckTransactions = async(model, transactedDocs, callback) => {
                 const query = {_id: doc._id, t: doc.t};
                 utils.addShardKeyDatas(pseudoModel, doc, query);
                 if (doc.__new) {
-                    await model.collection.promise.remove(query);
+                    await raw.remove(model.collection, query);
                     return;
                 }
                 const updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};
@@ -319,13 +331,7 @@ const find = (proto, ignoreCallback) => {
                 const transactedDocs = await filterTransactedDocs(docs);
                 if (!transactedDocs.ids.length) {
                     // FIXME need return
-                    docs = proto.isMultiple ? docs : docs[0];
-                    if (docs && docs.rewind) {
-                        // WARN - MAGIC!! avoid cursor is exhausted
-                        await docs.promise.hasNext();
-                        docs.rewind();
-                    }
-                    return docs;
+                    return proto.isMultiple ? docs : docs[0];
                 }
                 await recheckTransactions(proto.model, transactedDocs);
             }
@@ -469,8 +475,10 @@ module.exports.TransactedModel = (connection, modelName, schema) => {
         proto.orig = proto.target[proto.name];
         // FIXME
         proto.target[proto.name + 'Force'] = proto.orig;
-        model[methodName] = findWaitUnlock(proto);
-        model[methodName + 'Force'] = findForce(proto);
+        const wait = findWaitUnlock(proto);
+        const force = findForce(proto);
+        model[methodName] = (...args) => wait.apply(model, args);
+        model[methodName + 'Force'] = (...args) => force.apply(model, args);
     });
 
     // syntactic sugar

@@ -1,28 +1,44 @@
 language: node_js
+sudo: false
 
 node_js:
-    - 4
-    - 6
     - 8
+    - 10
+    - 12
 
 env:
-    - MONGOOSE_VERSION=4.6.x MONGODB=3.4.19
-    - MONGOOSE_VERSION=4.7.x MONGODB=3.4.19
+    - MONGOOSE_VERSION=4.7.x MONGODB=3.4.21
+    - MONGOOSE_VERSION=4.x MONGODB=3.4.21
+    - MONGOOSE_VERSION=5.x MONGODB=3.4.21 USE_NEW_MONGO_URL_PARSER=1 USE_FIND_AND_MODIFY=1 USE_CREATE_INDEX=1
+    - MONGOOSE_VERSION=4.7.x MONGODB=3.6.13 NO_PUSHALL=1
+    - MONGOOSE_VERSION=4.x MONGODB=3.6.13 NO_PUSHALL=1
+    - MONGOOSE_VERSION=5.x MONGODB=3.6.13 NO_PUSHALL=1 USE_NEW_MONGO_URL_PARSER=1 USE_FIND_AND_MODIFY=1 USE_CREATE_INDEX=1
+    - MONGOOSE_VERSION=4.7.x MONGODB=4.0.10 NO_PUSHALL=1
+    - MONGOOSE_VERSION=4.x MONGODB=4.0.10 NO_PUSHALL=1
+    - MONGOOSE_VERSION=5.x MONGODB=4.0.10 NO_PUSHALL=1 USE_NEW_MONGO_URL_PARSER=1 USE_FIND_AND_MODIFY=1 USE_CREATE_INDEX=1
 
 matrix:
     fast_finish: true
 
+cache:
+    directories:
+        - ${HOME}/.cache/mongodb
+
 install:
-    - curl -L http://fastdl.mongodb.org/linux/mongodb-linux-x86_64-${MONGODB}.tgz | tar xz
-    - ${PWD}/mongodb-linux-x86_64-${MONGODB}/bin/mongod --version
+    - mkdir -p ${HOME}/.cache/mongodb
+    - test -f ${HOME}/.cache/mongodb/mongodb-linux-x86_64-3.4.21/bin/mongod || curl -L http://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.4.21.tgz | tar xz -C ${HOME}/.cache/mongodb
+    - test -f ${HOME}/.cache/mongodb/mongodb-linux-x86_64-3.6.13/bin/mongod || curl -L http://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.6.13.tgz | tar xz -C ${HOME}/.cache/mongodb
+    - test -f ${HOME}/.cache/mongodb/mongodb-linux-x86_64-4.0.10/bin/mongod || curl -L http://fastdl.mongodb.org/linux/mongodb-linux-x86_64-4.0.10.tgz | tar xz -C ${HOME}/.cache/mongodb
 
 before_script:
-    - mkdir ${PWD}/mongodb-linux-x86_64-${MONGODB}/data
-    - ${PWD}/mongodb-linux-x86_64-${MONGODB}/bin/mongod --dbpath ${PWD}/mongodb-linux-x86_64-${MONGODB}/data --logpath ${PWD}/mongodb-linux-x86_64-${MONGODB}/mongodb.log --fork
+    - mkdir -p ${PWD}/mongodb/data
+    - ${HOME}/.cache/mongodb/mongodb-linux-x86_64-${MONGODB}/bin/mongod --version
+    - ${HOME}/.cache/mongodb/mongodb-linux-x86_64-${MONGODB}/bin/mongod --dbpath ${PWD}/mongodb/data --logpath ${PWD}/mongodb/mongodb.log --fork
 
 script:
     - cp test/config.js.sample test/config.js
     - npm install -d
+    - npm uninstall mongoose
     - npm install mongoose@${MONGOOSE_VERSION}
     - npm test
 

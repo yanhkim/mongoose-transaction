@@ -1,14 +1,19 @@
 /* eslint-env node, mocha */
+/* eslint max-lines: ['error', 2000] */
 'use strict';
 const Promise = require('songbird');
 const should = require('should');
 const mongoose = require('mongoose');
 const _ = require('lodash');
-global.TRANSACTION_DEBUG_LOG = false;
 const transaction = require('../src/index');
 const DEFINE = require('../src/define');
+const raw = require('../src/raw');
 const utils = require('../src/utils');
 const ERRORS = DEFINE.ERROR_TYPE;
+const NO_PUSHALL = process.env.NO_PUSHALL === '1';
+const USE_NEW_MONGO_URL_PARSER = process.env.USE_NEW_MONGO_URL_PARSER === '1';
+const USE_FIND_AND_MODIFY = process.env.USE_FIND_AND_MODIFY !== '0';
+const USE_CREATE_INDEX = process.env.USE_CREATE_INDEX === '1';
 
 let connection;
 let Test;
@@ -30,6 +35,9 @@ const initialize = (callback) => {
     const dbname = 'test_transaction_' + (new mongoose.Types.ObjectId());
     const uri = 'mongodb://' + config.mongodb + '/' + dbname;
     // console.log(uri);
+    mongoose.set('useFindAndModify', USE_FIND_AND_MODIFY);
+    mongoose.set('useCreateIndex', USE_CREATE_INDEX);
+    mongoose.set('useNewUrlParser', USE_NEW_MONGO_URL_PARSER);
     connection = mongoose.createConnection(uri, callback);
 };
 
@@ -45,6 +53,7 @@ const getNative = async function getNative() {
 
 TestSchema.methods.getNative = getNative;
 transaction.TransactionSchema.methods.getNative = getNative;
+transaction.TransactionSchema.options.usePushEach = NO_PUSHALL;
 before(ma(async() => {
     await initialize.promise();
 
@@ -282,7 +291,8 @@ describe('Find documents from model', () => {
             'it should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
-            await Test.collection.promise.update(
+            await raw.update(
+                Test.collection,
                 {_id: x._id},
                 {$set: {t: new mongoose.Types.ObjectId()}},
             );
@@ -297,7 +307,8 @@ describe('Find documents from model', () => {
             'they should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
-            await Test.collection.promise.update(
+            await raw.update(
+                Test.collection,
                 {_id: x._id},
                 {$set: {t: new mongoose.Types.ObjectId()}},
             );
@@ -353,14 +364,9 @@ describe('Find documents from model', () => {
 
             const ndocs = await Test.promise.findNative({});
             should.exists(ndocs);
-            const count = await ndocs.promise.count();
-            should.exists(count);
-            console.log(count);
-            count.should.not.eql(0);
-            ndocs.rewind();
             const docs = await ndocs.promise.toArray();
+            docs.length.should.not.eql(0);
             should.exists(docs);
-            docs.length.should.eql(count);
             docs.forEach((x) => x.t.should.eql(transaction.NULL_OBJECTID));
         }),
     );
@@ -861,7 +867,7 @@ describe('hooks', () => {
         const t = await Transaction.begin();
         await t.add(x);
         t.post('commit', () => {
-            throw new Exception('IGNORE ME');
+            throw new Error('IGNORE ME');
         });
         let hookValue = 0;
         t.post('commit', () => {
@@ -898,7 +904,7 @@ describe('hooks', () => {
                     resolve();
                 }, 500);
             }).then(() => {
-                throw new Exception('IGNORE THIS');
+                throw new Error('IGNORE THIS');
             });
         });
         let hookValue = 0;
@@ -938,7 +944,7 @@ describe('hooks', () => {
         const t = await Transaction.begin();
         await t.add(x);
         t.post('commit', () => {
-            throw new Exception('IGNORE ME');
+            throw new Error('IGNORE ME');
         });
         let hookValue = 0;
         await t.commit(() => {
@@ -1068,13 +1074,13 @@ describe('model base hooks', () => {
         doc.__called = [];
         await t.add(doc);
         await t.commit();
-        should(doc.__called).deepEqual([1,2,3])
+        should(doc.__called).deepEqual([1, 2, 3]);
 
         t = await Transaction.begin();
         doc = await t.findOne(Data, {_id: doc._id});
         doc.__called = [];
         await t.commit();
-        should(doc.__called).deepEqual([1,2,3])
+        should(doc.__called).deepEqual([1, 2, 3]);
     }));
 });
 
@@ -1242,7 +1248,7 @@ describe('fix find problem with custom shard key with $in operator', () => {
 
     it('support find for lock', ma(async() => {
         const ids = [];
-        for (let i = 0; i < 10; i ++) {
+        for (let i = 0; i < 10; i++) {
             const doc = new Data({sk: 1, data: i});
             ids.push(doc._id);
             await doc.promise.save();
