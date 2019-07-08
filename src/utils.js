@@ -198,7 +198,7 @@ const DEBUG = (...args) => {
     console.log(...args);
 };
 
-const INFO = (args) => {
+const INFO = (...args) => {
     if (!['debug', 'info'].includes(process.env.MONGOOSE_TRANSACTION_LOG)) {
         return;
     }

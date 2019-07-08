@@ -327,8 +327,7 @@ TransactionSchema.methods.commit = async function commit(callback) {
         await Promise.all(promises);
 
         if (errors.length) {
-            // eslint-disable-next-line
-            console.error('errors', errors);
+            INFO('errors', errors);
             // TODO: cleanup batch
             return;
         }
@@ -541,7 +540,7 @@ TransactionSchema.methods._commit = async function _commit() {
     const hint = {transaction: this};
     const errors = await this._makeHistory('commit');
     if (errors.length) {
-        INFO(errors);
+        INFO('errors', errors);
         await this.expire();
         if (errors[0]) {
             throw errors[0];
@@ -654,8 +653,7 @@ TransactionSchema.methods.expire = async function expire(callback) {
         });
         await Promise.all(promises);
         if (errors.length) {
-            // eslint-disable-next-line
-            console.error('errors', errors);
+            INFO('errors', errors);
             // TODO: cleanup batch
             return;
         }
@@ -793,8 +791,7 @@ TransactionSchema.methods.find = async function find(model, ...args) {
     options = options || {};
 
     if (options.skip || options.limit) {
-        // eslint-disable-next-line
-        console.error('not support skip and limit yet');
+        INFO('not support skip and limit yet');
     }
 
     const origOrCondition = conditions.$or = conditions.$or || [];

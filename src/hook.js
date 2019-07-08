@@ -1,5 +1,7 @@
 'use strict';
 require('songbird');
+const utils = require('./utils');
+const INFO = utils.INFO;
 
 const PRE_POST_HOOK_TYPES = ['commit', 'expire'];
 
@@ -45,8 +47,7 @@ class Hook {
             try {
                 await f(context);
             } catch (e) {
-                const msg = e.stack || e.message || e.toString();
-                process.stderr.write(msg + '\n');
+                INFO(e);
             }
         });
         await Promise.all(promises);
