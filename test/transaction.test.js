@@ -4,7 +4,6 @@ const Promise = require('songbird');
 const should = require('should');
 const mongoose = require('mongoose');
 const _ = require('lodash');
-global.TRANSACTION_DEBUG_LOG = false;
 const transaction = require('../src/index');
 const DEFINE = require('../src/define');
 const raw = require('../src/raw');
@@ -868,7 +867,7 @@ describe('hooks', () => {
         const t = await Transaction.begin();
         await t.add(x);
         t.post('commit', () => {
-            throw new Exception('IGNORE ME');
+            throw new Error('IGNORE ME');
         });
         let hookValue = 0;
         t.post('commit', () => {
@@ -905,7 +904,7 @@ describe('hooks', () => {
                     resolve();
                 }, 500);
             }).then(() => {
-                throw new Exception('IGNORE THIS');
+                throw new Error('IGNORE THIS');
             });
         });
         let hookValue = 0;
@@ -945,7 +944,7 @@ describe('hooks', () => {
         const t = await Transaction.begin();
         await t.add(x);
         t.post('commit', () => {
-            throw new Exception('IGNORE ME');
+            throw new Error('IGNORE ME');
         });
         let hookValue = 0;
         await t.commit(() => {

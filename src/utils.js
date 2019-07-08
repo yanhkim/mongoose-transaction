@@ -190,11 +190,20 @@ if (NODE_VERSIONS[0] >= 0 && NODE_VERSIONS[1] >= 10) {
 }
 nextTick = nextTick || process.nextTick;
 
-const DEBUG = () => {
-    if (global.TRANSACTION_DEBUG_LOG) {
-        // eslint-disable-next-line
-        console.log.apply(console, arguments);
+const DEBUG = (...args) => {
+    if (process.env.MONGOOSE_TRANSACTION_LOG !== 'debug') {
+        return;
     }
+    // eslint-disable-next-line
+    console.log(...args);
+};
+
+const INFO = (args) => {
+    if (!['debug', 'info'].includes(process.env.MONGOOSE_TRANSACTION_LOG)) {
+        return;
+    }
+    // eslint-disable-next-line
+    console.log(...args);
 };
 
 const addShardKeyDatas = (pseudoModel, src, dest) => {
@@ -254,6 +263,7 @@ const promisify = (obj, method) => {
 
 module.exports = {
     DEBUG: DEBUG,
+    INFO: INFO,
     wrapMongoOp: wrapMongoOp,
     unwrapMongoOp: unwrapMongoOp,
     setDefaultFields: setDefaultFields,

@@ -47,6 +47,7 @@ const ModelMap = require('./modelmap');
 const Hook = require('./hook');
 const ERROR_TYPE = DEFINE.ERROR_TYPE;
 const DEBUG = utils.DEBUG;
+const INFO = utils.INFO;
 const ONE_MINUTE = 60 * 1000;
 
 const TransactionSchema = new mongoose.Schema({
@@ -538,8 +539,7 @@ TransactionSchema.methods._commit = async function _commit() {
     const hint = {transaction: this};
     const errors = await this._makeHistory('commit');
     if (errors.length) {
-        // eslint-disable-next-line
-        console.error(errors);
+        INFO(errors);
         await this.expire();
         if (errors[0]) {
             throw errors[0];
