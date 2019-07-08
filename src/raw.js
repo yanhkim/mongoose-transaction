@@ -59,4 +59,3 @@ module.exports = {
     remove: remove,
 };
 // vim: et ts=4 sw=4 sts=4 colorcolumn=80
-// vim: et ts=4 sw=4 sts=4 colorcolumn=80
