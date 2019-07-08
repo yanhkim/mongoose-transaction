@@ -127,20 +127,7 @@ module.exports.plugin = (schema) => {
                     'default': DEFINE.NULL_OBJECTID}});
     schema.add({__new: Boolean});
 
-    if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
-        schema.post('init', function postInitHook() {
-            const self = this;
-            self._oldSave = self.save;
-            self.save = (callback) => {
-                self._saveWithoutTransaction((err) => {
-                    if (err) {
-                        return callback(err);
-                    }
-                    self._oldSave(callback);
-                }, callback);
-            };
-        });
-    } else if (DEFINE.MONGOOSE_VERSIONS[0] == 4) {
+    if (DEFINE.MONGOOSE_VERSIONS[0] == 4) {
         schema.pre('save', function preSaveHook(next, callback) {
             this._saveWithoutTransaction(next, callback);
         });

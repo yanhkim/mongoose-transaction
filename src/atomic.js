@@ -176,31 +176,11 @@ const releaseTransactionLock = async(db, collectionName, query, updateData,
     return promise;
 };
 
-const findAndModifyMongoNative36 = async(connection, collection, query,
-                                         updateData, fields) => {
-    const command = {
-        findAndModify: collection.name, query: query,
-        update: updateData, fields: fields, new: true,
-    };
-    const data = await connection.db.promise.executeDbCommand(command);
-    if (!data || !data.documents || !data.documents[0]) {
-        throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG,
-                                   {collection: collection.name,
-                                    query: query, update: updateData});
-    }
-    return data.documents[0].value;
-};
-
 const findAndModifyMongoNative37 = async(collection, query, updateData,
                                          fields) => {
     const options = {fields: fields, new: true};
     const data = await collection.promise.findAndModify(query, [], updateData,
                                                         options);
-    // above to 3.7.x less than 4.x
-    if (DEFINE.MONGOOSE_VERSIONS[0] < 4) {
-        return data;
-    }
-    // above 4.x
     if (!data) {
         const hint = {
             collection: collection.name,
@@ -244,15 +224,8 @@ const findAndModifyMongoNative52 = async(collection, query, updateData,
 const findAndModifyMongoNative = async(connection, collection, query,
                                        updateData, fields, callback) => {
     const promise = (async() => {
-        // below 3.6.x
-        if (DEFINE.MONGOOSE_VERSIONS[0] < 3 ||
-                (DEFINE.MONGOOSE_VERSIONS[0] === 3 &&
-                 DEFINE.MONGOOSE_VERSIONS[1] <= 6)) {
-            return await findAndModifyMongoNative36(connection, collection,
-                                                    query, updateData,
-                                                    fields);
         // below 5.1.x
-        } else if (DEFINE.MONGOOSE_VERSIONS[0] <= 4 ||
+        if (DEFINE.MONGOOSE_VERSIONS[0] <= 4 ||
                 (DEFINE.MONGOOSE_VERSIONS[0] === 5 &&
                  DEFINE.MONGOOSE_VERSIONS[1] <= 1)) {
             return await findAndModifyMongoNative37(collection, query,
