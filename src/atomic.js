@@ -176,8 +176,8 @@ const releaseTransactionLock = async(db, collectionName, query, updateData,
     return promise;
 };
 
-const findAndModifyMongoNativeOlder = async(connection, collection, query,
-                                            updateData, fields) => {
+const findAndModifyMongoNative36 = async(connection, collection, query,
+                                         updateData, fields) => {
     const command = {
         findAndModify: collection.name, query: query,
         update: updateData, fields: fields, new: true,
@@ -191,8 +191,8 @@ const findAndModifyMongoNativeOlder = async(connection, collection, query,
     return data.documents[0].value;
 };
 
-const findAndModifyMongoNativeNewer = async(collection, query, updateData,
-                                            fields) => {
+const findAndModifyMongoNative37 = async(collection, query, updateData,
+                                         fields) => {
     const options = {fields: fields, new: true};
     const data = await collection.promise.findAndModify(query, [], updateData,
                                                         options);
@@ -201,6 +201,22 @@ const findAndModifyMongoNativeNewer = async(collection, query, updateData,
         return data;
     }
     // above 4.x
+    if (!data) {
+        const hint = {
+            collection: collection.name,
+            query: query,
+            update: updateData,
+        };
+        throw new TransactionError(ERROR_TYPE.SOMETHING_WRONG, hint);
+    }
+    return data.value;
+};
+
+const findAndModifyMongoNative52 = async(collection, query, updateData,
+                                         fields) => {
+    const options = {projection: fields, returnOriginal: false};
+    const data = await collection.promise.findOneAndUpdate(query, updateData,
+                                                           options);
     if (!data) {
         const hint = {
             collection: collection.name,
@@ -232,12 +248,18 @@ const findAndModifyMongoNative = async(connection, collection, query,
         if (DEFINE.MONGOOSE_VERSIONS[0] < 3 ||
                 (DEFINE.MONGOOSE_VERSIONS[0] === 3 &&
                  DEFINE.MONGOOSE_VERSIONS[1] <= 6)) {
-            return await findAndModifyMongoNativeOlder(connection, collection,
-                                                       query, updateData,
-                                                       fields);
+            return await findAndModifyMongoNative36(connection, collection,
+                                                    query, updateData,
+                                                    fields);
+        // below 5.1.x
+        } else if (DEFINE.MONGOOSE_VERSIONS[0] <= 4 ||
+                (DEFINE.MONGOOSE_VERSIONS[0] === 5 &&
+                 DEFINE.MONGOOSE_VERSIONS[1] <= 1)) {
+            return await findAndModifyMongoNative37(collection, query,
+                                                    updateData, fields);
         } else {
-            return await findAndModifyMongoNativeNewer(collection, query,
-                                                       updateData, fields);
+            return await findAndModifyMongoNative52(collection, query,
+                                                    updateData, fields);
         }
     })();
 
