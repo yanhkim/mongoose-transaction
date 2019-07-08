@@ -3,6 +3,8 @@ require('songbird');
 
 const PRE_POST_HOOK_TYPES = ['commit', 'expire'];
 
+/**
+ */
 class Hook {
     constructor(once = false) {
         this.once = once;
@@ -42,7 +44,7 @@ class Hook {
         const promises = this.hooks[group].map(async(f) => {
             try {
                 await f(context);
-            } catch(e) {
+            } catch (e) {
                 const msg = e.stack || e.message || e.toString();
                 process.stderr.write(msg + '\n');
             }

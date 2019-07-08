@@ -1,4 +1,5 @@
 /* eslint-env node, mocha */
+/* eslint max-lines: ['error', 2000] */
 'use strict';
 const Promise = require('songbird');
 const should = require('should');
@@ -13,7 +14,6 @@ const NO_PUSHALL = process.env.NO_PUSHALL === '1';
 const USE_NEW_MONGO_URL_PARSER = process.env.USE_NEW_MONGO_URL_PARSER === '1';
 const USE_FIND_AND_MODIFY = process.env.USE_FIND_AND_MODIFY !== '0';
 const USE_CREATE_INDEX = process.env.USE_CREATE_INDEX === '1';
-
 
 let connection;
 let Test;
@@ -1074,13 +1074,13 @@ describe('model base hooks', () => {
         doc.__called = [];
         await t.add(doc);
         await t.commit();
-        should(doc.__called).deepEqual([1,2,3])
+        should(doc.__called).deepEqual([1, 2, 3]);
 
         t = await Transaction.begin();
         doc = await t.findOne(Data, {_id: doc._id});
         doc.__called = [];
         await t.commit();
-        should(doc.__called).deepEqual([1,2,3])
+        should(doc.__called).deepEqual([1, 2, 3]);
     }));
 });
 
@@ -1248,7 +1248,7 @@ describe('fix find problem with custom shard key with $in operator', () => {
 
     it('support find for lock', ma(async() => {
         const ids = [];
-        for (let i = 0; i < 10; i ++) {
+        for (let i = 0; i < 10; i++) {
             const doc = new Data({sk: 1, data: i});
             ids.push(doc._id);
             await doc.promise.save();

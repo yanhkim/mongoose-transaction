@@ -128,7 +128,7 @@ module.exports.plugin = (schema) => {
                     'default': DEFINE.NULL_OBJECTID}});
     schema.add({__new: Boolean});
 
-    if (DEFINE.MONGOOSE_VERSIONS[0] == 4) {
+    if (DEFINE.MONGOOSE_VERSIONS[0] === 4) {
         schema.pre('save', function preSaveHook(next, callback) {
             this._saveWithoutTransaction(next, callback);
         });
@@ -138,7 +138,7 @@ module.exports.plugin = (schema) => {
             const self = this;
             self._oldSave = self.save;
             self.save = (callback) => {
-                self._oldSave(function(err) {
+                self._oldSave((err) => {
                     if (err && err.message === ERROR_TYPE.NORMAL) {
                         return callback();
                     }
@@ -207,7 +207,7 @@ const filterTransactedDocs = async(docs, callback) => {
             }
             if (docs.rewind) {
                 // WARN - MAGIC!! avoid cursor is exhausted
-                if (DEFINE.MONGOOSE_VERSIONS[0] == 4 &&
+                if (DEFINE.MONGOOSE_VERSIONS[0] === 4 &&
                         DEFINE.MONGOOSE_VERSIONS[1] <= 7) {
                     await docs.promise.hasNext();
                 }

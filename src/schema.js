@@ -348,7 +348,7 @@ TransactionSchema.methods.commit = async function commit(callback) {
     await this._doHooks('finalize');
 
     if (callback) {
-        callback();
+        return callback();
     }
 };
 
@@ -438,8 +438,10 @@ TransactionSchema.methods._doHooks = async function doHooks(...types) {
 // #### Arguments
 // * func - :Function:
 TransactionSchema.methods.afterCommit = function afterCommit(func) {
-    const warn = 'mongoose-transaction: DEPRECATED `afterCommit`.'
-        + ' Please use `post(\'commit\', hook)` instead this\n';
+    const warn = (
+        'mongoose-transaction: DEPRECATED `afterCommit`.' +
+        ' Please use `post(\'commit\', hook)` instead this\n'
+    );
     process.stderr.write(warn);
     this.post('commit', func);
 };
@@ -673,7 +675,7 @@ TransactionSchema.methods.expire = async function expire(callback) {
     await this._doHooks('finalize');
 
     if (callback) {
-        callback();
+        return callback();
     }
 };
 
@@ -738,8 +740,8 @@ TransactionSchema.methods.convertQueryForAvoidConflict = (conditions) => {
     return conditions;
 };
 
-TransactionSchema.methods._acquireLock = async function _acquireLock(model, fields,
-                                                             query1, query2) {
+TransactionSchema.methods._acquireLock =
+async function _acquireLock(model, fields, query1, query2) {
     let doc;
     const updateQuery = {$set: {t: this._id}};
     const opt = {new: true, fields: fields};
@@ -791,6 +793,7 @@ TransactionSchema.methods.find = async function find(model, ...args) {
     options = options || {};
 
     if (options.skip || options.limit) {
+        // eslint-disable-next-line
         console.error('not support skip and limit yet');
     }
 
@@ -899,7 +902,8 @@ TransactionSchema.methods.findOne = async function findOne(model, ...args) {
         query1 = _.defaultsDeep(query1, conditions);
         const query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
-        const doc = await this._acquireLock(model, options.fields, query1, query2);
+        const doc = await this._acquireLock(model, options.fields, query1,
+                                            query2);
         if (doc) {
             return doc;
         }

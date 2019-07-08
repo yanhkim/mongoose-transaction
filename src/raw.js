@@ -31,17 +31,9 @@ const insert = async(col, data) => {
 // :Promise:
 const update = async(col, query, data, opts) => {
     if (col.updateMany) {
-        return await col.promise.updateMany(
-            query,
-            data,
-            opts,
-        );
+        return await col.promise.updateMany(query, data, opts);
     }
-    return await collection.promise.update(
-        query,
-        updateData,
-        writeOptions,
-    );
+    return await col.promise.update(query, data, opts);
 };
 
 // ### remove
