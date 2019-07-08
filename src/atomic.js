@@ -1,6 +1,7 @@
 // ## PseudoFindAndModify
 'use strict';
 require('songbird');
+const raw = require('./raw');
 const utils = require('./utils');
 const TransactionError = require('./error');
 const DEFINE = require('./define');
@@ -35,25 +36,19 @@ const pseudoFindAndModify = async(db, collectionName, query, updateData,
     const promise = (async() => {
         const collection = await db.collection(collectionName);
 
-        if (collection.updateMany) {
-            const result = await collection.promise.updateMany(
-                query,
-                updateData,
-                writeOptions,
-            );
-            // console.log(result);
-            return [result.modifiedCount || 0, collection];
-        } else {
-            let numberUpdated = await collection.promise.update(
-                query,
-                updateData,
-                writeOptions,
-            );
-            if (numberUpdated.result) {
-                numberUpdated = numberUpdated.result.nModified || 0;
-            }
-            return [numberUpdated, collection];
+        const result = await raw.update(collection, query, updateData,
+                                        writeOptions);
+        if (result.modifiedCount) {
+            return [result.modifiedCount, collection];
         }
+        if (result.result) {
+            return [result.result.nModified, collection];
+        }
+        if (Number.isInteger(result)) {
+            return [result, collection];
+        }
+        // console.log(result);
+        return [0, collection];
     })();
 
     if (callback) {

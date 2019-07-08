@@ -11,6 +11,7 @@ mongoose.Promise = Promise;
 const _ = require('lodash');
 const utils = require('./utils');
 const atomic = require('./atomic');
+const raw = require('./raw');
 const TransactionError = require('./error');
 const DEFINE = require('./define');
 const TransactionSchema = require('./schema');
@@ -262,11 +263,7 @@ const recheckTransactions = async(model, transactedDocs, callback) => {
                 const query = {_id: doc._id, t: doc.t};
                 utils.addShardKeyDatas(pseudoModel, doc, query);
                 if (doc.__new) {
-                    if (model.collection.removeOne) {
-                        await model.collection.promise.removeOne(query);
-                    } else {
-                        await model.collection.promise.remove(query);
-                    }
+                    await raw.remove(model.collection, query);
                     return;
                 }
                 const updateQuery = {$set: {t: DEFINE.NULL_OBJECTID}};

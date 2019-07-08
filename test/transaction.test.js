@@ -7,6 +7,7 @@ const _ = require('lodash');
 global.TRANSACTION_DEBUG_LOG = false;
 const transaction = require('../src/index');
 const DEFINE = require('../src/define');
+const raw = require('../src/raw');
 const utils = require('../src/utils');
 const ERRORS = DEFINE.ERROR_TYPE;
 const NO_PUSHALL = process.env.NO_PUSHALL === '1';
@@ -23,13 +24,6 @@ const ma = (fn) => {
     return (done) => {
         fn.call().then(done).catch(done);
     };
-};
-
-const update = async(Col, ...args) => {
-    if (Col.updateMany) {
-        return await Col.promise.updateMany(...args);
-    }
-    return await Col.promise.update(...args);
 };
 
 const initialize = (callback) => {
@@ -298,7 +292,7 @@ describe('Find documents from model', () => {
             'it should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
-            await update(
+            await raw.update(
                 Test.collection,
                 {_id: x._id},
                 {$set: {t: new mongoose.Types.ObjectId()}},
@@ -314,7 +308,7 @@ describe('Find documents from model', () => {
             'they should cancel removed previous transaction',
         ma(async() => {
             const x = await createSavedTestDoc();
-            await update(
+            await raw.update(
                 Test.collection,
                 {_id: x._id},
                 {$set: {t: new mongoose.Types.ObjectId()}},
