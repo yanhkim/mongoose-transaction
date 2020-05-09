@@ -440,12 +440,31 @@ describe('Find documents from transaction', () => {
         const t = await Transaction.begin();
         await (new Test()).promise.save();
         await (new Test()).promise.save();
-        const t0 = await t.findOne(Test, null, {sort: {'_id': 1}});
+        const t0 = await t.findOne(Test, null, null, {sort: {'_id': 1}});
         should.exist(t0);
-        const t1 = await t.findOne(Test, null, {sort: {'_id': -1}});
+        const t1 = await t.findOne(Test, null, null, {sort: {'_id': -1}});
         should.exist(t1);
         t0._id.should.not.eql(t1._id);
     }));
+
+    it('Transaction.findOne should support projection', ma(async() => {
+        const t = await Transaction.begin();
+        await (new Test({num: 1, string: 'foobar'})).promise.save();
+        const doc = await t.findOne(Test, null, {num: 1});
+        should.not.exists(doc.string);
+    }));
+
+    it('Transaction.find should support projection on multiple documents',
+        ma(async() => {
+            const t = await Transaction.begin();
+            await (new Test({num: 1, string: 'foobar'})).promise.save();
+            await (new Test({num: 2, string: 'bazqux'})).promise.save();
+            const docs = await t.find(Test, null, {num: 1});
+            docs.every((doc) => {
+                return should.not.exists(doc.string), true;
+            });
+        }),
+    );
 
     // FIXME: current find only check t is `NULL_OBJECTID`
     // so, docs.length is always return 0
@@ -1112,7 +1131,7 @@ describe('guarantee sorting order', () => {
 
     it('fetch with sort order', ma(async() => {
         const t = await Transaction.begin();
-        const datas = await t.find(Data, {}, {sort: {data: 1}});
+        const datas = await t.find(Data, null, null, {sort: {data: 1}});
         should(datas.map((d) => d.data)).deepEqual(_.range(10));
         await t.expire();
     }));

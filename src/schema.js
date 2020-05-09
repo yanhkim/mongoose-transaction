@@ -763,12 +763,15 @@ async function _acquireLock(model, fields, query1, query2) {
 
 // ### Transaction.find
 // Find documents with assgined `t`
+// Provides similar functionality to Model.find from mongoose
+// - https://mongoosejs.com/docs/4.x/docs/api.html#model_Model.find
 //
 // If conflict another process, this method wait and retry action
 //
 // #### Arguments
 // * model - :TransactedModel:
 // * conditions - :Object:
+// * projection - :Object:
 // * options - :Object:
 // * callback - :Function:
 //
@@ -786,8 +789,9 @@ TransactionSchema.methods.find = async function find(model, ...args) {
         args.pop();
     }
 
-    let [conditions, options] = args;
+    let [conditions, projection, options] = args;
     conditions = conditions || {};
+    projection = projection || {};
     options = options || {};
 
     if (options.skip || options.limit) {
@@ -821,7 +825,7 @@ TransactionSchema.methods.find = async function find(model, ...args) {
                 query1.$or = query1.$or.concat(origOrCondition);
                 const query2 = {_id: doc._id, t: {$ne: this._id}};
                 utils.addShardKeyDatas(pseudoModel, doc, query2);
-                const lockedDoc = await this._acquireLock(model, options.fields,
+                const lockedDoc = await this._acquireLock(model, projection,
                                                           query1, query2);
                 if (!lockedDoc) {
                     return;
@@ -857,12 +861,15 @@ TransactionSchema.methods.find = async function find(model, ...args) {
 
 // ### Transaction.findOne
 // Find documents with assgined `t`
+// Provides similar functionality to Model.findOne from mongoose
+// - https://mongoosejs.com/docs/4.x/docs/api.html#model_Model.findOne
 //
 // If conflict another process, this method wait and retry action
 //
 // #### Arguments
 // * model - :TransactedModel:
 // * conditions - :Object:
+// * projection - :Object:
 // * options - :Object:
 // * callback - :Function:
 //
@@ -880,14 +887,16 @@ TransactionSchema.methods.findOne = async function findOne(model, ...args) {
         args.pop();
     }
 
-    let [conditions, options] = args;
+    let [conditions, projection, options] = args;
     conditions = conditions || {};
+    projection = projection || {};
     options = options || {};
 
     const RETRY_LIMIT = 5;
     const _findOne = async(retry = 1) => {
         const pseudoModel = ModelMap.getPseudoModel(model);
         const _doc = await model.collection.promise.findOne(conditions,
+                                                            {_id: 1},
                                                             options);
         if (!_doc) {
             return;
@@ -899,7 +908,7 @@ TransactionSchema.methods.findOne = async function findOne(model, ...args) {
         query1 = _.defaultsDeep(query1, conditions);
         const query2 = {_id: _doc._id};
         utils.addShardKeyDatas(pseudoModel, _doc, query2);
-        const doc = await this._acquireLock(model, options.fields, query1,
+        const doc = await this._acquireLock(model, projection, query1,
                                             query2);
         if (doc) {
             return doc;
